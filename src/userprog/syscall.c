@@ -20,10 +20,22 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
    */
 
   /* printf("System call number: %d\n", args[0]); */
-
-  if (args[0] == SYS_EXIT) {
-    f->eax = args[1];
-    printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
-    process_exit();
+  switch (args[0]) {
+    case SYS_PRACTICE:
+      f->eax = args[1] + 1;
+      thread_unblock(thread_current());
+      asm volatile("movl %0, %%esp; jmp intr_exit" : : "g"(f) : "memory");
+      break;
+    case SYS_HALT:
+      break;
+    case SYS_EXIT:
+      f->eax = args[1];
+      printf("%s: exit(%d)\n", thread_current()->pcb->process_name, args[1]);
+      process_exit();
+      break;
+    case SYS_EXEC:
+      break;
+    case SYS_WAIT:
+      break;
   }
 }

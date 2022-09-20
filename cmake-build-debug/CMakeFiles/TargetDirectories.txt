@@ -1,0 +1,3 @@
+/home/cc/cs162/fa22/class/cs162-aac/code/group/cmake-build-debug/CMakeFiles/group.dir
+/home/cc/cs162/fa22/class/cs162-aac/code/group/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/cc/cs162/fa22/class/cs162-aac/code/group/cmake-build-debug/CMakeFiles/rebuild_cache.dir
