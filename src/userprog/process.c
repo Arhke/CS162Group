@@ -465,18 +465,46 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
-static bool setup_stack(void** esp) {
-  uint8_t* kpage;
-  bool success = false;
+static bool setup_stack(void **esp, char *file_name) {
+    uint8_t* kpage;
+    bool success = false;
 
-  kpage = palloc_get_page(PAL_USER | PAL_ZERO);
-  if (kpage != NULL) {
-    success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
-    if (success)
-      *esp = PHYS_BASE - 20;
-    else
-      palloc_free_page(kpage);
-  }
+    kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+    if (kpage != NULL) {
+        success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
+        if (success) {
+            /* Computation of stack memory requirements */
+            int argc = 0, capacity = 1;
+            char *token, *save_ptr = file_name;
+
+            uint64_t *cumulative_lengths = malloc(sizeof(int)), cumulative_length = 0;
+            char **tokens = malloc(sizeof(char *));
+
+            while ((token = strtok_r(save_ptr, " ", &save_ptr))) {
+                if (argc + 1 > capacity) {
+                    capacity <<= 1;
+                    cumulative_lengths = realloc(cumulative_lengths, capacity * sizeof(int));
+                    tokens = realloc(tokens, capacity * sizeof(char *));
+                }
+                cumulative_lengths[argc] = cumulative_length;
+                tokens[argc] = token;
+                cumulative_length += (strlen(token) + 1);
+
+                argc++;
+            }
+
+            uint64_t memreq = sizeof(int) + sizeof(char **) + (argc + 1) * sizeof(char *) + cumulative_length;
+            uint64_t padding = -memreq & 0xF;
+            memreq += (padding + sizeof(void (*)()));
+
+            *esp = PHYS_BASE - memreq;
+
+            free(cumulative_lengths);
+            free(tokens);
+        } else {
+            palloc_free_page(kpage);
+        }
+    }
   return success;
 }
 
