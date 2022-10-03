@@ -259,7 +259,7 @@ struct Elf32_Phdr {
 #define PF_W 2 /* Writable. */
 #define PF_R 4 /* Readable. */
 
-static bool setup_stack(void** esp);
+static bool setup_stack(void** esp, const char *file_name);
 static bool validate_segment(const struct Elf32_Phdr*, struct file*);
 static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t read_bytes,
                          uint32_t zero_bytes, bool writable);
@@ -348,7 +348,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
   }
 
   /* Set up stack. */
-  if (!setup_stack(esp))
+  if (!setup_stack(esp, file_name))
     goto done;
 
   /* Start address. */
@@ -465,7 +465,7 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
 
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
-static bool setup_stack(void **esp, char *file_name) {
+static bool setup_stack(void **esp, const char *file_name) {
     uint8_t* kpage;
     bool success = false;
 
@@ -477,7 +477,7 @@ static bool setup_stack(void **esp, char *file_name) {
             int argc = 0, capacity = 1;
             char *token, *save_ptr = file_name;
 
-            uint64_t *cumulative_lengths = malloc(sizeof(int)), cumulative_length = 0;
+            uint32_t *cumulative_lengths = malloc(sizeof(int)), cumulative_length = 0;
             char **tokens = malloc(sizeof(char *));
 
             while ((token = strtok_r(save_ptr, " ", &save_ptr))) {
@@ -493,11 +493,31 @@ static bool setup_stack(void **esp, char *file_name) {
                 argc++;
             }
 
-            uint64_t memreq = sizeof(int) + sizeof(char **) + (argc + 1) * sizeof(char *) + cumulative_length;
-            uint64_t padding = -memreq & 0xF;
+            uint32_t memreq = sizeof(int) + sizeof(char **) + (argc + 1) * sizeof(char *) + cumulative_length;
+            uint32_t padding = -memreq & 0xF;
             memreq += (padding + sizeof(void (*)()));
 
+
             *esp = PHYS_BASE - memreq;
+
+
+            /* Loading arguments onto the stack */
+            void **stack_ptr = (void **) *esp;
+            *(stack_ptr++) = NULL;
+
+            *stack_ptr = (void *) argc;
+            *(stack_ptr + 1) = (void *) (stack_ptr + 2);
+            stack_ptr += 2;
+
+            char *args_start = (char *) (stack_ptr) + (argc + 1) * sizeof(char *);
+            memset(args_start, 0, padding);
+            args_start += padding;
+            for (int i = 0; i < argc; i++) {
+                char *arg_ptr = args_start + cumulative_lengths[i];
+                strlcpy(arg_ptr, tokens[i], strlen(tokens[i]) + 1);
+                stack_ptr[i] = (void *) arg_ptr;
+            }
+            stack_ptr[argc] = NULL;
 
             free(cumulative_lengths);
             free(tokens);
@@ -505,7 +525,7 @@ static bool setup_stack(void **esp, char *file_name) {
             palloc_free_page(kpage);
         }
     }
-  return success;
+    return success;
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
