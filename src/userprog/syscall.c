@@ -5,9 +5,14 @@
 #include "threads/thread.h"
 #include "userprog/process.h"
 
+static struct lock fs_lock; /* Global file syscall lock */
+
 static void syscall_handler(struct intr_frame*);
 
-void syscall_init(void) { intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall"); }
+void syscall_init(void) {
+  lock_init(&fs_lock);
+  intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
+  }
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
   uint32_t* args = ((uint32_t*)f->esp);
@@ -44,5 +49,14 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
       break;
     case SYS_WAIT:
       break;
+    case SYS_WRITE:
+      lock_acquire(&fs_lock);
+      int fd = args[1];
+      char* buff_ptr = (char *) args[2];
+      size_t buff_size = args[3];
+      if (fd == 1) {
+        putbuf(buff_ptr, buff_size);
+      }
+      lock_release(&fs_lock);
   }
 }
