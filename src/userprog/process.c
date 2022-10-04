@@ -26,21 +26,28 @@ static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 
+
+/* Helper function that sets up PCB that can also be called by normal processes */
+bool setup_pcb(void) {
+    struct thread* t = thread_current();
+
+    /* Allocate process control block
+        It is imoprtant that this is a call to calloc and not malloc,
+        so that t->pcb->pagedir is guaranteed to be NULL (the kernel's
+        page directory) when t->pcb is assigned, because a timer interrupt
+        can come at any time and activate our pagedir */
+    t->pcb = calloc(sizeof(struct process), 1);
+    bool success = t->pcb != NULL;
+
+    return success;
+}
+
 /* Initializes user programs in the system by ensuring the main
    thread has a minimal PCB so that it can execute and wait for
    the first user process. Any additions to the PCB should be also
    initialized here if main needs those members */
 void userprog_init(void) {
-  struct thread* t = thread_current();
-  bool success;
-
-  /* Allocate process control block
-     It is imoprtant that this is a call to calloc and not malloc,
-     so that t->pcb->pagedir is guaranteed to be NULL (the kernel's
-     page directory) when t->pcb is assigned, because a timer interrupt
-     can come at any time and activate our pagedir */
-  t->pcb = calloc(sizeof(struct process), 1);
-  success = t->pcb != NULL;
+  bool success = setup_pcb();
 
   /* Kill the kernel if we did not succeed */
   ASSERT(success);

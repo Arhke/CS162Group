@@ -51,6 +51,7 @@ struct child_data {
 };
 
 
+bool setup_pcb(void);
 void userprog_init(void);
 
 pid_t process_execute(const char* file_name);
