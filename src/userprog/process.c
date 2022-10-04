@@ -52,7 +52,7 @@ void userprog_init(void) {
    process id, or TID_ERROR if the thread cannot be created. */
 pid_t process_execute(const char* file_name) {
   char* fn_copy;
-  tid_t tid;
+  struct thread *t;
 
   sema_init(&temporary, 0);
   /* Make a copy of FILE_NAME.
@@ -63,10 +63,10 @@ pid_t process_execute(const char* file_name) {
   strlcpy(fn_copy, file_name, PGSIZE);
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
+  t = thread_create(file_name, PRI_DEFAULT, start_process, fn_copy);
+  if (t->tid == TID_ERROR)
     palloc_free_page(fn_copy);
-  return tid;
+  return t->tid;
 }
 
 /* A thread function that loads a user process and starts it
@@ -144,42 +144,43 @@ int process_wait(pid_t child_pid UNUSED) {
 }
 
 /* Free the current process's resources. */
-void process_exit(void) {
-  struct thread* cur = thread_current();
-  uint32_t* pd;
+void process_exit(int exit_code) {
+    struct thread* cur = thread_current();
+    printf("%s: exit(%d)\n", cur->pcb->process_name, exit_code);
 
-  /* If this thread does not have a PCB, don't worry */
-  if (cur->pcb == NULL) {
+    uint32_t* pd;
+    /* If this thread does not have a PCB, don't worry */
+    if (cur->pcb == NULL) {
+        thread_exit();
+        NOT_REACHED();
+    }
+
+    /* Destroy the current process's page directory and switch back
+        to the kernel-only page directory. */
+    pd = cur->pcb->pagedir;
+    if (pd != NULL) {
+        /* Correct ordering here is crucial.  We must set
+            cur->pcb->pagedir to NULL before switching page directories,
+            so that a timer interrupt can't switch back to the
+            process page directory.  We must activate the base page
+            directory before destroying the process's page
+            directory, or our active page directory will be one
+            that's been freed (and cleared). */
+        cur->pcb->pagedir = NULL;
+        pagedir_activate(NULL);
+        pagedir_destroy(pd);
+    }
+
+    /* Free the PCB of this process and kill this thread
+        Avoid race where PCB is freed before t->pcb is set to NULL
+        If this happens, then an unfortuantely timed timer interrupt
+        can try to activate the pagedir, but it is now freed memory */
+    struct process* pcb_to_free = cur->pcb;
+    cur->pcb = NULL;
+    free(pcb_to_free);
+
+    sema_up(&temporary);
     thread_exit();
-    NOT_REACHED();
-  }
-
-  /* Destroy the current process's page directory and switch back
-     to the kernel-only page directory. */
-  pd = cur->pcb->pagedir;
-  if (pd != NULL) {
-    /* Correct ordering here is crucial.  We must set
-         cur->pcb->pagedir to NULL before switching page directories,
-         so that a timer interrupt can't switch back to the
-         process page directory.  We must activate the base page
-         directory before destroying the process's page
-         directory, or our active page directory will be one
-         that's been freed (and cleared). */
-    cur->pcb->pagedir = NULL;
-    pagedir_activate(NULL);
-    pagedir_destroy(pd);
-  }
-
-  /* Free the PCB of this process and kill this thread
-     Avoid race where PCB is freed before t->pcb is set to NULL
-     If this happens, then an unfortuantely timed timer interrupt
-     can try to activate the pagedir, but it is now freed memory */
-  struct process* pcb_to_free = cur->pcb;
-  cur->pcb = NULL;
-  free(pcb_to_free);
-
-  sema_up(&temporary);
-  thread_exit();
 }
 
 /* Sets up the CPU for running user code in the current
@@ -475,11 +476,16 @@ static bool setup_stack(void **esp, const char *file_name) {
         if (success) {
             /* Computation of stack memory requirements */
             int argc = 0, capacity = 1;
-            char *token, *save_ptr = file_name;
+            char *token, *save_ptr = malloc(strlen(file_name) + 1);
 
+            /* Make a copy of file_name for tokenization */
+            strlcpy(save_ptr, file_name, strlen(file_name) + 1);
+
+            /* Keep track of cumulative lengths of tokens to allow copying to stack */
             uint32_t *cumulative_lengths = malloc(sizeof(int)), cumulative_length = 0;
             char **tokens = malloc(sizeof(char *));
 
+            /* Iterate through tokens using strtok_r */
             while ((token = strtok_r(save_ptr, " ", &save_ptr))) {
                 if (argc + 1 > capacity) {
                     capacity <<= 1;
@@ -493,24 +499,30 @@ static bool setup_stack(void **esp, const char *file_name) {
                 argc++;
             }
 
+            /* Add space for arg pointers, argc, argv, padding, and return address */
             uint32_t memreq = sizeof(int) + sizeof(char **) + (argc + 1) * sizeof(char *) + cumulative_length;
             uint32_t padding = -memreq & 0xF;
-            memreq += (padding + sizeof(void (*)()));
+            memreq += (padding + 4);
 
-
+            /* Lower stack pointer */
             *esp = PHYS_BASE - memreq;
 
 
             /* Loading arguments onto the stack */
             void **stack_ptr = (void **) *esp;
+
+            /* Fake return address */
             *(stack_ptr++) = NULL;
 
+            /* argc and argv */
             *stack_ptr = (void *) argc;
             *(stack_ptr + 1) = (void *) (stack_ptr + 2);
             stack_ptr += 2;
 
             char *args_start = (char *) (stack_ptr) + (argc + 1) * sizeof(char *);
             memset(args_start, 0, padding);
+
+            /* For each argument copy its token onto the appropriate address and load the address onto the stack */
             args_start += padding;
             for (int i = 0; i < argc; i++) {
                 char *arg_ptr = args_start + cumulative_lengths[i];
@@ -519,6 +531,7 @@ static bool setup_stack(void **esp, const char *file_name) {
             }
             stack_ptr[argc] = NULL;
 
+            /* Free memory used for computations */
             free(cumulative_lengths);
             free(tokens);
         } else {
