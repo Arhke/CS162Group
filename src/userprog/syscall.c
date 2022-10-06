@@ -1,19 +1,28 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+#include <string.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 #include "userprog/process.h"
 #include "devices/shutdown.h"
+
+
+#define validate_ptr(ptr) ({                                                                        \
+    if ((void *) ptr < 0 || (void *) ptr >= PHYS_BASE) {                                        \
+        return;                                                                                     \
+    }                                                                                               \
+})
 
 static struct lock fs_lock; /* Global file syscall lock */
 
 static void syscall_handler(struct intr_frame*);
 
 void syscall_init(void) {
-  lock_init(&fs_lock);
-  intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
-  }
+    lock_init(&fs_lock);
+    intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
+}
 
 static void syscall_handler(struct intr_frame* f UNUSED) {
     uint32_t* args = ((uint32_t*)f->esp);
@@ -39,6 +48,9 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
             process_exit(args[1]);
             break;
         case SYS_EXEC: ;
+            char *file_name = (char *) args[1];
+            // validate_ptr(file_name);
+            // validate_ptr(file_name + strlen(file_name));
             pid_t pid = process_execute((char *) args[1]);
             if (pid == TID_ERROR) {
                 f->eax = -1;
@@ -46,15 +58,15 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
                 f->eax = pid;
             }
             break;
-        case SYS_WAIT: ;
-            int exit_code = process_wait(args[1]);
-            f->eax = exit_code;
+        case SYS_WAIT:
+            f->eax = process_wait(args[1]);
             break;
-        case SYS_WRITE:
-            lock_acquire(&fs_lock);
+        case SYS_WRITE: ;
             int fd = args[1];
             char* buff_ptr = (char *) args[2];
             size_t buff_size = args[3];
+            // validate_ptr(buff_ptr);
+            lock_acquire(&fs_lock);
             if (fd == 1) {
                 putbuf(buff_ptr, buff_size);
             }

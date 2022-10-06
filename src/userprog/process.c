@@ -20,7 +20,9 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-static struct semaphore temporary;
+
+// #define is_executable(file) (stat(file, &sb) == 0 && (sb.st_mode & S_IXUSR))
+
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load(const char* file_name, void (**eip)(void), void** esp);
@@ -87,6 +89,11 @@ pid_t process_execute(const char* file_name) {
     char *copy = malloc(strlen(file_name) + 1);
     memcpy(copy, file_name, strlen(file_name) + 1);
     char *executable = strtok_r(copy, " ", &copy);
+
+    if (filesys_open(executable) == NULL) {
+        free(executable);
+        return TID_ERROR;
+    }
 
     void **aux = malloc(2 * sizeof(void *));
     aux[0] = (void *) fn_copy;
