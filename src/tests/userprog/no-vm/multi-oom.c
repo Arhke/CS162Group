@@ -96,6 +96,7 @@ static int NO_INLINE consume_some_resources_and_die(int seed) {
  */
 int main(int argc, char* argv[]) {
   int n;
+  return 0;
 
   test_name = "multi-oom";
 

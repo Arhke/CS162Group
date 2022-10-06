@@ -36,8 +36,20 @@ bool setup_pcb(void) {
         so that t->pcb->pagedir is guaranteed to be NULL (the kernel's
         page directory) when t->pcb is assigned, because a timer interrupt
         can come at any time and activate our pagedir */
+    // Ensure that timer_interrupt() -> schedule() -> process_activate()
+    // does not try to activate our uninitialized pagedir
+
+    /* Note, calloc innately sets parent pointer to NULL */
     t->pcb = calloc(sizeof(struct process), 1);
     bool success = t->pcb != NULL;
+
+    if (success) {
+        /* Initialize parent-child data in process */
+        list_init(&(t->pcb->child_processes));
+        sema_init(&(t->pcb->pcb_init_sema), 0);
+        sema_init(&(t->pcb->wait_sema), 0);
+        rw_lock_init(&(t->pcb->list_iteration_lock));
+    }
 
     return success;
 }
@@ -59,9 +71,9 @@ void userprog_init(void) {
    process id, or TID_ERROR if the thread cannot be created. */
 pid_t process_execute(const char* file_name) {
     char* fn_copy;
-    struct thread *t;
+    struct thread *parent = thread_current(), *t;
 
-    sema_init(&temporary, 0);
+    // sema_init(&temporary, 0);
     /* Make a copy of FILE_NAME.
         Otherwise there's a race between the caller and load(). */
     fn_copy = palloc_get_page(0);
@@ -76,36 +88,63 @@ pid_t process_execute(const char* file_name) {
     memcpy(copy, file_name, strlen(file_name) + 1);
     char *executable = strtok_r(copy, " ", &copy);
 
-    t = thread_create(executable, PRI_DEFAULT, start_process, fn_copy);
+    void **aux = malloc(2 * sizeof(void *));
+    aux[0] = (void *) fn_copy;
+    aux[1] = (void *) parent->pcb;
 
-    if (t->tid == TID_ERROR)
+    t = thread_create(executable, PRI_DEFAULT, start_process, (void *) aux);
+
+    if (t->tid == TID_ERROR) {
         palloc_free_page(fn_copy);
+    } else {
+        sema_down(&parent->pcb->pcb_init_sema);
+    }
+
     return t->tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
-static void start_process(void* file_name_) {
-    char* file_name = (char*)file_name_;
+static void start_process(void* aux) {
+    char* file_name = (char*) ((void **) aux)[0];
+    struct process *parent = (struct process *) ((void **) aux)[1];
+
     struct thread* t = thread_current();
+
 
     struct intr_frame if_;
     bool success, pcb_success;
-
-    /* Allocate process control block */
-    struct process* new_pcb = malloc(sizeof(struct process));
-    success = pcb_success = new_pcb != NULL;
+    success = pcb_success = setup_pcb();
 
     /* Initialize process control block */
     if (success) {
-        // Ensure that timer_interrupt() -> schedule() -> process_activate()
-        // does not try to activate our uninitialized pagedir
-        new_pcb->pagedir = NULL;
-        t->pcb = new_pcb;
+        // Set the pointer to the parent process
+        t->pcb->parent_process = parent;
+
+        // Setup child data 
+        struct child_data *child = malloc(sizeof(struct child_data));
+        *child = (struct child_data) {
+            .child_process = t->pcb,
+            .pid = t->tid,
+            .elem_modification_lock = 0,
+            .is_waiting = false,
+            .has_exited = false,
+            .exit_code = 0,
+            .elem = 0
+        };
+        lock_init(&child->elem_modification_lock);
+
+        /* Add self to list of children in parent before executing */
+        rw_lock_acquire(&parent->list_iteration_lock, RW_WRITER);
+            list_push_back(&parent->child_processes, &child->elem);
+        rw_lock_release(&parent->list_iteration_lock, RW_WRITER);
 
         // Continue initializing the PCB as normal
         t->pcb->main_thread = t;
         strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+
+        // Release parent to continue running now that PCB is setup
+        sema_up(&parent->pcb_init_sema);
     }
 
     /* Initialize interrupt frame and load executable. */
@@ -125,12 +164,15 @@ static void start_process(void* file_name_) {
         struct process* pcb_to_free = t->pcb;
         t->pcb = NULL;
         free(pcb_to_free);
+
+        /* Release parent if PCB cannot be set up */
+        sema_up(&parent->pcb_init_sema);
     }
 
     /* Clean up. Exit on failure or jump to userspace */
     palloc_free_page(file_name);
     if (!success) {
-        sema_up(&temporary);
+        // sema_up(&temporary);
         thread_exit();
     }
 
@@ -153,9 +195,46 @@ static void start_process(void* file_name_) {
 
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
-int process_wait(pid_t child_pid UNUSED) {
-  sema_down(&temporary);
-  return 0;
+int process_wait(pid_t child_pid) {
+    // sema_down(&temporary);
+    struct process *parent = thread_current()->pcb;
+
+    /* Beyond process_execute -> start_process, the parent is the only one who can add/delete
+        list elements so there are no list iteration synchronization issues. Searches through
+        list of children to check if a child PID. The first time wait is called, the child is
+        removed after the exit code is acquired so child missing covers both cases of child_pid
+        not a child and wait already called. */
+    struct list_elem *e = list_begin(&parent->child_processes);
+    struct child_data *cd;
+    while (e != list_end(&parent->child_processes) && (cd = list_entry(e, struct child_data, elem))->pid != child_pid) {
+        e = list_next(e);
+    }
+
+    /* If child_pid is not present in list of children then error */
+    if (e == list_end(&parent->child_processes)) {
+        return -1;
+    } else {
+        lock_acquire(&cd->elem_modification_lock);
+        if (cd->has_exited) {
+            /* If child already exited, no contest for modification of list element, can read
+                return code after releasing the lock */
+            lock_release(&cd->elem_modification_lock);
+        } else {
+            /* Else, set waiting to true. Release the lock and wait for the child to exit */
+            cd->is_waiting = true;
+            lock_release(&cd->elem_modification_lock);
+            sema_down(&parent->wait_sema);
+        }
+        int result = cd->exit_code;
+
+        /* On the first call to wait, remove the child from the list so wait cannot be called twice */
+        rw_lock_acquire(&parent->list_iteration_lock, RW_WRITER);
+            list_remove(e);
+        rw_lock_release(&parent->list_iteration_lock, RW_WRITER);
+        free(cd);
+
+        return result;
+    }
 }
 
 /* Free the current process's resources. */
@@ -169,6 +248,41 @@ void process_exit(int exit_code) {
         thread_exit();
         NOT_REACHED();
     }
+
+    /* Update the parent process that the child has exited */
+    struct process *parent = cur->pcb->parent_process;
+    if (parent != NULL) {
+        struct list_elem *e;
+        struct child_data *cd;
+        rw_lock_acquire(&parent->list_iteration_lock, RW_READER);
+            e = list_begin(&parent->child_processes);
+            while ((cd = list_entry(e, struct child_data, elem))->pid != cur->tid) {
+                e = list_next(e);
+            }
+        rw_lock_release(&parent->list_iteration_lock, RW_READER);
+
+        lock_acquire(&cd->elem_modification_lock);
+            cd->has_exited = true;
+            cd->exit_code = exit_code;
+            if (cd->is_waiting) {
+                sema_up(&parent->wait_sema);
+            }
+        lock_release(&cd->elem_modification_lock);
+    }
+
+
+    /* Update all children processes that the parent no longer exists */
+    rw_lock_acquire(&cur->pcb->list_iteration_lock, RW_WRITER);
+        struct list_elem *e;
+        struct child_data *cd;
+        while (!list_empty(&cur->pcb->child_processes)) {
+            e = list_pop_front(&cur->pcb->child_processes);
+            cd = list_entry(e, struct child_data, elem);
+            cd->child_process->parent_process = NULL;
+            free(cd);
+        }
+    rw_lock_release(&cur->pcb->list_iteration_lock, RW_WRITER);
+
 
     /* Destroy the current process's page directory and switch back
         to the kernel-only page directory. */
@@ -194,7 +308,7 @@ void process_exit(int exit_code) {
     cur->pcb = NULL;
     free(pcb_to_free);
 
-    sema_up(&temporary);
+    // sema_up(&temporary);
     thread_exit();
 }
 

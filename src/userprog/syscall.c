@@ -45,9 +45,10 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
             } else {
                 f->eax = pid;
             }
-            thread_unblock(thread_current());
             break;
-        case SYS_WAIT:
+        case SYS_WAIT: ;
+            int exit_code = process_wait(args[1]);
+            f->eax = exit_code;
             break;
         case SYS_WRITE:
             lock_acquire(&fs_lock);
@@ -60,4 +61,5 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
             lock_release(&fs_lock);
             break;
     }
+    // printf("syscall_handler exited syscall %d\n", args[0]);
 }

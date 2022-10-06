@@ -43,9 +43,9 @@ void cond_broadcast(struct condition*, struct lock*);
 #define RW_WRITER 0
 
 struct rw_lock {
-  struct lock lock;
-  struct condition read, write;
-  int AR, WR, AW, WW;
+    struct lock lock;
+    struct condition read, write;
+    int AR, WR, AW, WW;
 };
 
 void rw_lock_init(struct rw_lock*);

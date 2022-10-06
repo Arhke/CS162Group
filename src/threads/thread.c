@@ -174,7 +174,7 @@ void thread_print_stats(void) {
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
 struct thread *thread_create(const char* name, int priority, thread_func* function, void* aux) {
-    struct thread* t;
+    struct thread *t;
     struct kernel_thread_frame* kf;
     struct switch_entry_frame* ef;
     struct switch_threads_frame* sf;
@@ -184,8 +184,9 @@ struct thread *thread_create(const char* name, int priority, thread_func* functi
 
     /* Allocate thread. */
     t = palloc_get_page(PAL_ZERO);
-    if (t == NULL)
+    if (t == NULL) {
         return TID_ERROR;
+    }
 
     /* Initialize thread. */
     init_thread(t, name, priority);
@@ -208,8 +209,7 @@ struct thread *thread_create(const char* name, int priority, thread_func* functi
 
     /* Add to run queue. */
     thread_unblock(t);
-  
-  return t;
+    return t;
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -249,15 +249,18 @@ static void thread_enqueue(struct thread* t) {
    it may expect that it can atomically unblock a thread and
    update other data. */
 void thread_unblock(struct thread* t) {
-  enum intr_level old_level;
+    enum intr_level old_level;
 
-  ASSERT(is_thread(t));
+    ASSERT(is_thread(t));
 
-  old_level = intr_disable();
-  ASSERT(t->status == THREAD_BLOCKED);
-  thread_enqueue(t);
-  t->status = THREAD_READY;
-  intr_set_level(old_level);
+    old_level = intr_disable();
+    if (t->status != THREAD_BLOCKED) {
+        printf("Thread status: %d\n", t->status);
+    }
+    ASSERT(t->status == THREAD_BLOCKED);
+    thread_enqueue(t);
+    t->status = THREAD_READY;
+    intr_set_level(old_level);
 }
 
 /* Returns the name of the running thread. */
@@ -286,16 +289,17 @@ tid_t thread_tid(void) { return thread_current()->tid; }
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void thread_exit(void) {
-  ASSERT(!intr_context());
+    ASSERT(!intr_context());
 
-  /* Remove thread from all threads list, set our status to dying,
-     and schedule another process.  That process will destroy us
-     when it calls thread_switch_tail(). */
-  intr_disable();
-  list_remove(&thread_current()->allelem);
-  thread_current()->status = THREAD_DYING;
-  schedule();
-  NOT_REACHED();
+    /* Remove thread from all threads list, set our status to dying,
+        and schedule another process.  That process will destroy us
+        when it calls thread_switch_tail(). */
+    intr_disable();
+    list_remove(&thread_current()->allelem);
+    thread_current()->status = THREAD_DYING;
+
+    schedule();
+    NOT_REACHED();
 }
 
 /* Yields the CPU.  The current thread is not put to sleep and

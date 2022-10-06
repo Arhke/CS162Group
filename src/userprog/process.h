@@ -34,19 +34,22 @@ struct process {
 
 
     struct process *parent_process;     /* Pointer to parent process */
-    struct list *child_processes;       /* List of struct child_data representing child processes */
+    struct list child_processes;        /* List of struct child_data representing child processes */
 
     struct semaphore pcb_init_sema;     /* Semaphore that ensures child PCB is initialized before parent finishes exec */
     struct semaphore wait_sema;         /* Semaphore that ensures child finishes executing before parent finishes wait */
 
-    struct rw_lock list_access_lock;    /* Synchronization of child list read and writes in the case of child exiting
-                                            and parent adding a new child */
+    struct rw_lock list_iteration_lock; /* Synchronization of child/parent list iteration and list element insertion/
+                                            deletion. To iterate, use reader, to add element, use writer. */
 };
 
 struct child_data {
-    struct process *child_process;      /* Pointer to child process, also determines whether child has exited */
+    struct process *child_process;      /* Pointer to the child process */
+    pid_t pid;                          /* PID of child process */
+    struct lock elem_modification_lock; /* Synchronization of concurrent read/writes to child_data */
+    bool is_waiting;                    /* Whether parent is waiting on this child */
+    bool has_exited;                    /* Whether this child process has exited or not */
     uint32_t exit_code;                 /* Exit code of child process */
-    bool is_waiting;                    /* Whether the parent process is waiting on this child process */
     struct list_elem elem;
 };
 
