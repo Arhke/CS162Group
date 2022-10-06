@@ -61,5 +61,4 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
             lock_release(&fs_lock);
             break;
     }
-    // printf("syscall_handler exited syscall %d\n", args[0]);
 }
