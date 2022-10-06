@@ -5,14 +5,31 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "devices/shutdown.h"
 
 
-#define validate_ptr(ptr) ({                                                                        \
-    if ((void *) ptr < 0 || (void *) ptr >= PHYS_BASE) {                                        \
-        return;                                                                                     \
-    }                                                                                               \
+#define validate_space(if_, ptr, n) ({                                                                          \
+    if ((void *) ((char *) ptr + n) > PHYS_BASE ||                                                              \
+            !(pagedir_get_page(active_pd(), ptr) && pagedir_get_page(active_pd(), (char *) ptr + n - 1))) {     \
+        process_exit((if_->eax = -1));                                                                          \
+        return;                                                                                                 \
+    }                                                                                                           \
+})
+
+#define validate_string(if_, str) ({                                                                            \
+    uint32_t *pd = active_pd();                                                                                 \
+    if (pagedir_get_page(pd, str) == NULL) {                                                                    \
+        process_exit((if_->eax = -1));                                                                          \
+        return;                                                                                                 \
+    }                                                                                                           \
+    char *cptr = (char *) str;                                                                                  \
+    while ((void *) cptr < PHYS_BASE && pagedir_get_page(pd, cptr) && *(cptr++));                                                                                                                                       \
+    if (pagedir_get_page(pd, cptr) == NULL) {                                                                   \
+        process_exit((if_->eax = -1));                                                                          \
+        return;                                                                                                 \
+    }                                                                                                           \
 })
 
 static struct lock fs_lock; /* Global file syscall lock */
@@ -24,8 +41,9 @@ void syscall_init(void) {
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
-static void syscall_handler(struct intr_frame* f UNUSED) {
+static void syscall_handler(struct intr_frame* f) {
     uint32_t* args = ((uint32_t*)f->esp);
+    validate_space(f, args, sizeof(uint32_t));
 
     /*
     * The following print statement, if uncommented, will print out the syscall
@@ -38,19 +56,24 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
 
     switch (args[0]) {
         case SYS_PRACTICE:
+            validate_space(f, args, 2 * sizeof(uint32_t));
+
             f->eax = args[1] + 1;
             break;
         case SYS_HALT:
             shutdown_power_off();
             break;
         case SYS_EXIT:
+            validate_space(f, args, 2 * sizeof(uint32_t));
+
             f->eax = args[1];
             process_exit(args[1]);
             break;
-        case SYS_EXEC: ;
+        case SYS_EXEC:
+            validate_space(f, args, 2 * sizeof(uint32_t));
             char *file_name = (char *) args[1];
-            // validate_ptr(file_name);
-            // validate_ptr(file_name + strlen(file_name));
+            validate_string(f, file_name);
+
             pid_t pid = process_execute((char *) args[1]);
             if (pid == TID_ERROR) {
                 f->eax = -1;
@@ -59,13 +82,17 @@ static void syscall_handler(struct intr_frame* f UNUSED) {
             }
             break;
         case SYS_WAIT:
+            validate_space(f, args, 2 * sizeof(uint32_t));
+
             f->eax = process_wait(args[1]);
             break;
-        case SYS_WRITE: ;
+        case SYS_WRITE:
+            validate_space(f, args, 3 * sizeof(uint32_t));
             int fd = args[1];
             char* buff_ptr = (char *) args[2];
             size_t buff_size = args[3];
-            // validate_ptr(buff_ptr);
+            validate_string(f, buff_ptr);
+
             lock_acquire(&fs_lock);
             if (fd == 1) {
                 putbuf(buff_ptr, buff_size);
