@@ -24,8 +24,6 @@ typedef void (*stub_fun)(pthread_fun, void*);
    to the PCB, and the PCB will have a pointer to the main thread
    of the process, which is `special`. */
 
-typedef struct child_data;
-
 struct process {
     /* Owned by process.c. */
     uint32_t* pagedir;                  /* Page directory. */
@@ -43,15 +41,14 @@ struct process {
                                             deletion. To iterate, use reader, to add element, use writer. */
 };
 
-struct child_data {
-    struct process *child_process;      /* Pointer to the child process */
+typedef struct child_data {
+    struct process *child_process;      /* Pointer to the child process, NULL if child has exited */
     pid_t pid;                          /* PID of child process */
     struct lock elem_modification_lock; /* Synchronization of concurrent read/writes to child_data */
     bool is_waiting;                    /* Whether parent is waiting on this child */
-    bool has_exited;                    /* Whether this child process has exited or not */
-    uint32_t exit_code;                 /* Exit code of child process */
+    int exit_code;                      /* Exit code of child process */
     struct list_elem elem;
-};
+} child_data_t;
 
 
 bool setup_pcb(void);

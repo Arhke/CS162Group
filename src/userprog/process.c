@@ -75,7 +75,6 @@ pid_t process_execute(const char* file_name) {
     char* fn_copy;
     struct thread *parent = thread_current(), *t;
 
-    // sema_init(&temporary, 0);
     /* Make a copy of FILE_NAME.
         Otherwise there's a race between the caller and load(). */
     fn_copy = palloc_get_page(0);
@@ -129,13 +128,12 @@ static void start_process(void* aux) {
         t->pcb->parent_process = parent;
 
         // Setup child data 
-        struct child_data *child = malloc(sizeof(struct child_data));
-        *child = (struct child_data) {
+        child_data_t *child = malloc(sizeof(child_data_t));
+        *child = (child_data_t) {
             .child_process = t->pcb,
             .pid = t->tid,
             .elem_modification_lock = 0,
             .is_waiting = false,
-            .has_exited = false,
             .exit_code = 0,
             .elem = 0
         };
@@ -179,7 +177,6 @@ static void start_process(void* aux) {
     /* Clean up. Exit on failure or jump to userspace */
     palloc_free_page(file_name);
     if (!success) {
-        // sema_up(&temporary);
         thread_exit();
     }
 
@@ -203,7 +200,6 @@ static void start_process(void* aux) {
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int process_wait(pid_t child_pid) {
-    // sema_down(&temporary);
     struct process *parent = thread_current()->pcb;
 
     /* Beyond process_execute -> start_process, the parent is the only one who can add/delete
@@ -212,8 +208,8 @@ int process_wait(pid_t child_pid) {
         removed after the exit code is acquired so child missing covers both cases of child_pid
         not a child and wait already called. */
     struct list_elem *e = list_begin(&parent->child_processes);
-    struct child_data *cd;
-    while (e != list_end(&parent->child_processes) && (cd = list_entry(e, struct child_data, elem))->pid != child_pid) {
+    child_data_t *cd;
+    while (e != list_end(&parent->child_processes) && (cd = list_entry(e, child_data_t, elem))->pid != child_pid) {
         e = list_next(e);
     }
 
@@ -222,7 +218,7 @@ int process_wait(pid_t child_pid) {
         return -1;
     } else {
         lock_acquire(&cd->elem_modification_lock);
-        if (cd->has_exited) {
+        if (cd->child_process == NULL) {
             /* If child already exited, no contest for modification of list element, can read
                 return code after releasing the lock */
             lock_release(&cd->elem_modification_lock);
@@ -260,16 +256,16 @@ void process_exit(int exit_code) {
     struct process *parent = cur->pcb->parent_process;
     if (parent != NULL) {
         struct list_elem *e;
-        struct child_data *cd;
+        child_data_t *cd;
         rw_lock_acquire(&parent->list_iteration_lock, RW_READER);
             e = list_begin(&parent->child_processes);
-            while ((cd = list_entry(e, struct child_data, elem))->pid != cur->tid) {
+            while ((cd = list_entry(e, child_data_t, elem))->pid != cur->tid) {
                 e = list_next(e);
             }
         rw_lock_release(&parent->list_iteration_lock, RW_READER);
 
         lock_acquire(&cd->elem_modification_lock);
-            cd->has_exited = true;
+            cd->child_process = NULL;
             cd->exit_code = exit_code;
             if (cd->is_waiting) {
                 sema_up(&parent->wait_sema);
@@ -279,13 +275,14 @@ void process_exit(int exit_code) {
 
 
     /* Update all children processes that the parent no longer exists */
+    struct list_elem *e;
+    child_data_t *cd;
     rw_lock_acquire(&cur->pcb->list_iteration_lock, RW_WRITER);
-        struct list_elem *e;
-        struct child_data *cd;
-        while (!list_empty(&cur->pcb->child_processes)) {
-            e = list_pop_front(&cur->pcb->child_processes);
-            cd = list_entry(e, struct child_data, elem);
-            cd->child_process->parent_process = NULL;
+        for (e = list_begin(&cur->pcb->child_processes); e != list_end(&cur->pcb->child_processes); e = list_next(e)) {
+            cd = list_entry(e, child_data_t, elem);
+            if (cd->child_process != NULL) {
+                cd->child_process->parent_process = NULL;
+            }
             free(cd);
         }
     rw_lock_release(&cur->pcb->list_iteration_lock, RW_WRITER);
@@ -315,7 +312,6 @@ void process_exit(int exit_code) {
     cur->pcb = NULL;
     free(pcb_to_free);
 
-    // sema_up(&temporary);
     thread_exit();
 }
 
