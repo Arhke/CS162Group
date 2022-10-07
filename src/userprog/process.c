@@ -105,7 +105,6 @@ pid_t process_execute(const char* file_name) {
     } else {
         sema_down(&parent->pcb->pcb_init_sema);
     }
-
     return t->tid;
 }
 
@@ -132,10 +131,10 @@ static void start_process(void* aux) {
         *child = (child_data_t) {
             .child_process = t->pcb,
             .pid = t->tid,
-            .elem_modification_lock = 0,
+            .elem_modification_lock = {0},
             .is_waiting = false,
             .exit_code = 0,
-            .elem = 0
+            .elem = {0}
         };
         lock_init(&child->elem_modification_lock);
 
@@ -242,24 +241,24 @@ int process_wait(pid_t child_pid) {
 
 /* Free the current process's resources. */
 void process_exit(int exit_code) {
-    struct thread* cur = thread_current();
-    printf("%s: exit(%d)\n", cur->pcb->process_name, exit_code);
+    struct process* cur = thread_current()->pcb;
+    printf("%s: exit(%d)\n", cur->process_name, exit_code);
 
     uint32_t* pd;
     /* If this thread does not have a PCB, don't worry */
-    if (cur->pcb == NULL) {
+    if (cur == NULL) {
         thread_exit();
         NOT_REACHED();
     }
 
     /* Update the parent process that the child has exited */
-    struct process *parent = cur->pcb->parent_process;
+    struct process *parent = cur->parent_process;
     if (parent != NULL) {
         struct list_elem *e;
         child_data_t *cd;
         rw_lock_acquire(&parent->list_iteration_lock, RW_READER);
             e = list_begin(&parent->child_processes);
-            while ((cd = list_entry(e, child_data_t, elem))->pid != cur->tid) {
+            while ((cd = list_entry(e, child_data_t, elem))->child_process != cur) {
                 e = list_next(e);
             }
         rw_lock_release(&parent->list_iteration_lock, RW_READER);
@@ -277,20 +276,21 @@ void process_exit(int exit_code) {
     /* Update all children processes that the parent no longer exists */
     struct list_elem *e;
     child_data_t *cd;
-    rw_lock_acquire(&cur->pcb->list_iteration_lock, RW_WRITER);
-        for (e = list_begin(&cur->pcb->child_processes); e != list_end(&cur->pcb->child_processes); e = list_next(e)) {
+    rw_lock_acquire(&cur->list_iteration_lock, RW_WRITER);
+        while (!list_empty(&cur->child_processes)) {
+            e = list_pop_front(&cur->child_processes);
             cd = list_entry(e, child_data_t, elem);
             if (cd->child_process != NULL) {
                 cd->child_process->parent_process = NULL;
             }
             free(cd);
         }
-    rw_lock_release(&cur->pcb->list_iteration_lock, RW_WRITER);
+    rw_lock_release(&cur->list_iteration_lock, RW_WRITER);
 
 
     /* Destroy the current process's page directory and switch back
         to the kernel-only page directory. */
-    pd = cur->pcb->pagedir;
+    pd = cur->pagedir;
     if (pd != NULL) {
         /* Correct ordering here is crucial.  We must set
             cur->pcb->pagedir to NULL before switching page directories,
@@ -299,7 +299,7 @@ void process_exit(int exit_code) {
             directory before destroying the process's page
             directory, or our active page directory will be one
             that's been freed (and cleared). */
-        cur->pcb->pagedir = NULL;
+        cur->pagedir = NULL;
         pagedir_activate(NULL);
         pagedir_destroy(pd);
     }
@@ -308,9 +308,8 @@ void process_exit(int exit_code) {
         Avoid race where PCB is freed before t->pcb is set to NULL
         If this happens, then an unfortuantely timed timer interrupt
         can try to activate the pagedir, but it is now freed memory */
-    struct process* pcb_to_free = cur->pcb;
-    cur->pcb = NULL;
-    free(pcb_to_free);
+    thread_current()->pcb = NULL;
+    free(cur);
 
     thread_exit();
 }

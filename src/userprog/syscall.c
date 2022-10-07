@@ -13,7 +13,7 @@
 #define validate_space(if_, ptr, n) ({                                                                          \
     if ((void *) ((char *) ptr + n) > PHYS_BASE ||                                                              \
             !(pagedir_get_page(active_pd(), ptr) && pagedir_get_page(active_pd(), (char *) ptr + n - 1))) {     \
-        process_exit((if_->eax = -1));                                                                          \
+        process_exit(-1);                                                                                       \
         return;                                                                                                 \
     }                                                                                                           \
 })
@@ -21,27 +21,28 @@
 #define validate_string(if_, str) ({                                                                            \
     uint32_t *pd = active_pd();                                                                                 \
     if (pagedir_get_page(pd, str) == NULL) {                                                                    \
-        process_exit((if_->eax = -1));                                                                          \
+        process_exit(-1);                                                                                       \
         return;                                                                                                 \
     }                                                                                                           \
     char *cptr = (char *) str;                                                                                  \
     while ((void *) cptr < PHYS_BASE && pagedir_get_page(pd, cptr) && *(cptr++));                                                                                                                                       \
     if (pagedir_get_page(pd, cptr) == NULL) {                                                                   \
-        process_exit((if_->eax = -1));                                                                          \
+        process_exit(-1);                                                                                       \
         return;                                                                                                 \
     }                                                                                                           \
 })
 
+
 static struct lock fs_lock; /* Global file syscall lock */
 
-static void syscall_handler(struct intr_frame*);
+static void syscall_handler(struct intr_frame *);
 
 void syscall_init(void) {
     lock_init(&fs_lock);
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
-static void syscall_handler(struct intr_frame* f) {
+static void syscall_handler(struct intr_frame *f) {
     uint32_t* args = ((uint32_t*)f->esp);
     validate_space(f, args, sizeof(uint32_t));
 
@@ -52,7 +53,7 @@ static void syscall_handler(struct intr_frame* f) {
     * include it in your final submission.
     */
 
-    /* printf("System call number: %d\n", args[0]); */
+    // printf("Process %s executing system call number: %d\n", thread_current()->pcb->process_name, args[0]);
 
     switch (args[0]) {
         case SYS_PRACTICE:
@@ -93,11 +94,11 @@ static void syscall_handler(struct intr_frame* f) {
             size_t buff_size = args[3];
             validate_string(f, buff_ptr);
 
-            lock_acquire(&fs_lock);
             if (fd == 1) {
-                putbuf(buff_ptr, buff_size);
+                lock_acquire(&fs_lock);
+                    putbuf(buff_ptr, buff_size);
+                lock_release(&fs_lock);
             }
-            lock_release(&fs_lock);
             break;
     }
 }
