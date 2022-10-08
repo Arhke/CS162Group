@@ -48,7 +48,11 @@ bool setup_pcb(void) {
         list_init(&(p->child_processes));
         sema_init(&(p->pcb_init_sema), 0);
         sema_init(&(p->wait_sema), 0);
+
+        /* Initialize fdt */
+        fdt_init(p);
     }
+
 
     return success;
 }

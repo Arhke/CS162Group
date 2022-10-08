@@ -9,6 +9,7 @@
 // These defines will be used in Project 2: Multithreading
 #define MAX_STACK_PAGES (1 << 11)
 #define MAX_THREADS 127
+#define MAX_FD_NUM 128
 
 /* PIDs and TIDs are the same type. PID should be
    the TID of the main thread of the process */
@@ -49,6 +50,8 @@ struct process {
     struct semaphore wait_sema;         /* Semaphore that ensures child finishes executing before parent finishes wait */
 
     struct child_data *child_info;
+
+    struct file* fdt[MAX_FD_NUM];
 };
 
 typedef struct child_data {

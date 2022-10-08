@@ -120,6 +120,9 @@ enum sched_policy {
 extern enum sched_policy active_sched_policy;
 
 void thread_init(void);
+void fdt_init(struct process* p);
+int open_fd(struct process* p);
+bool valid_fd(struct process* p, int fd);
 void thread_start(void);
 
 void thread_tick(void);

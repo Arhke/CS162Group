@@ -8,6 +8,8 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "devices/shutdown.h"
+#include "filesys/filesys.h"
+#include "filesys/file.h"
 
 
 #define validate_space(if_, ptr, n) ({                                                                          \
@@ -55,6 +57,13 @@ static void syscall_handler(struct intr_frame *f) {
 
     // printf("Process %s executing system call number: %d\n", thread_current()->pcb->process_name, args[0]);
 
+    char* file_name;
+    struct file* desc;
+    int fd;
+    struct process* pcb;
+    unsigned buff_size;
+    char* buff_ptr;
+
     switch (args[0]) {
         case SYS_PRACTICE:
             validate_space(f, args, 2 * sizeof(uint32_t));
@@ -72,7 +81,7 @@ static void syscall_handler(struct intr_frame *f) {
             break;
         case SYS_EXEC:
             validate_space(f, args, 2 * sizeof(uint32_t));
-            char *file_name = (char *) args[1];
+            file_name = (char *) args[1];
             validate_string(f, file_name);
 
             pid_t pid = process_execute((char *) args[1]);
@@ -87,18 +96,140 @@ static void syscall_handler(struct intr_frame *f) {
 
             f->eax = process_wait(args[1]);
             break;
-        case SYS_WRITE:
-            validate_space(f, args, 3 * sizeof(uint32_t));
-            int fd = args[1];
-            char* buff_ptr = (char *) args[2];
-            size_t buff_size = args[3];
-            validate_string(f, buff_ptr);
+        case SYS_CREATE:
+            validate_space(f, args, sizeof(uint32_t) + sizeof(char *) + sizeof(unsigned));
+            file_name = (char *) args[1];
+            validate_string(f, file_name);
+            int32_t initial_size = args[2];
 
-            if (fd == 1) {
-                lock_acquire(&fs_lock);
+            lock_acquire(&fs_lock);
+                f->eax = filesys_create(file_name, initial_size);
+            lock_release(&fs_lock);
+
+            break;
+        case SYS_REMOVE:
+            validate_space(f, args, sizeof(uint32_t) + sizeof(char *));
+            file_name = (char *) args[1];
+            validate_string(f, file_name);
+
+            lock_acquire(&fs_lock);
+                f->eax = filesys_remove(file_name);
+            lock_release(&fs_lock);
+
+            break;
+        case SYS_OPEN:
+            validate_space(f, args, sizeof(uint32_t) + sizeof(char *));
+            file_name = (char *) args[1];
+            validate_string(f, file_name);
+
+            lock_acquire(&fs_lock);
+                pcb = thread_current()->pcb;
+                fd = open_fd(pcb);
+                desc = filesys_open(file_name);
+
+                if (fd == -1 || desc == NULL) {
+                    f->eax = -1;
+                } else {
+                    pcb->fdt[fd] = desc;
+                    f->eax = fd;
+                }
+            lock_release(&fs_lock);
+                
+            break;
+        case SYS_FILESIZE:
+            validate_space(f, args, 2 * sizeof(uint32_t));
+            fd = args[1];
+
+            lock_acquire(&fs_lock);
+                pcb = thread_current()->pcb;
+                if (!valid_fd(pcb, fd)) {
+                    f->eax = -1;
+                } else {
+                    f->eax = file_length(pcb->fdt[fd]);
+                }
+            lock_release(&fs_lock);
+            
+            break;
+        case SYS_READ:
+            validate_space(f, args, (2 * sizeof(uint32_t)) + sizeof(void *) + sizeof(unsigned));
+            fd = args[1];
+            buff_ptr = (char * ) args[2];
+            buff_size = args[3];
+            validate_space(f, buff_ptr, buff_size);
+
+            lock_acquire(&fs_lock);
+                pcb = thread_current()->pcb;
+                if (!valid_fd(pcb, fd) || fd == 1) {
+                    f->eax = -1;
+                } else if (fd == 0) {
+                    /* Read using input_getc from devices/input.c */
+                } else {
+                    f->eax = file_read(pcb->fdt[fd], buff_ptr, buff_size);
+                }
+            lock_release(&fs_lock);
+
+            break;
+        case SYS_WRITE:
+            validate_space(f, args, (2 * sizeof(uint32_t)) + sizeof(void *) + sizeof(unsigned));
+            fd = args[1];
+            buff_ptr = (char *) args[2];
+            buff_size = args[3];
+            validate_string(f, buff_ptr);
+            
+            lock_acquire(&fs_lock);
+                pcb = thread_current()->pcb;
+                if (!valid_fd(pcb, fd) || fd == 0) {
+                    f->eax = -1;
+                } else if (fd == 1) {
+                    /* Write to console */
                     putbuf(buff_ptr, buff_size);
-                lock_release(&fs_lock);
-            }
+                } else {
+                    f->eax = file_write(pcb->fdt[fd], buff_ptr, buff_size);
+                }
+            lock_release(&fs_lock);
+
+            break;
+        case SYS_SEEK:
+            validate_space(f, args, (2 * sizeof(uint32_t)) + sizeof(unsigned));
+            fd = args[1];
+            unsigned pos = args[2];
+
+            lock_acquire(&fs_lock);
+                pcb = thread_current()->pcb;
+                if (valid_fd(pcb, fd)) {
+                    file_seek(pcb->fdt[fd], pos);
+                }
+            lock_release(&fs_lock);
+
+            break;
+        case SYS_TELL:
+            validate_space(f, args, 2 * sizeof(uint32_t));
+            fd = args[1];
+
+            lock_acquire(&fs_lock);
+                pcb = thread_current()->pcb;
+                if (!valid_fd(pcb, fd)) {
+                    f->eax = -1;
+                } else {
+                    f->eax = file_tell(pcb->fdt[fd]);
+                }
+            lock_release(&fs_lock);
+
+            break;
+        case SYS_CLOSE:
+            validate_space(f, args, 2 * sizeof(uint32_t));
+            fd = args[1];
+
+            lock_acquire(&fs_lock);
+                pcb = thread_current()->pcb;
+                if (!valid_fd(pcb, fd)) {
+                    f->eax = -1;
+                } else {
+                    file_close(pcb->fdt[fd]);
+                    pcb->fdt[fd] = NULL;
+                }
+            lock_release(&fs_lock);
+
             break;
     }
 }
