@@ -23,7 +23,7 @@
 
 #define validate_string(if_, str) ({                                                                            \
     uint32_t *pd = active_pd();                                                                                 \
-    if (pagedir_get_page(pd, str) == NULL) {                                                                    \
+    if ((void *) str >= PHYS_BASE || pagedir_get_page(pd, str) == NULL) {                                       \
         process_exit(-1);                                                                                       \
         return;                                                                                                 \
     }                                                                                                           \
