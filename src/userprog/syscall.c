@@ -8,6 +8,7 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "devices/shutdown.h"
+#include "devices/input.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 
@@ -163,6 +164,10 @@ static void syscall_handler(struct intr_frame *f) {
                     f->eax = -1;
                 } else if (fd == 0) {
                     /* Read using input_getc from devices/input.c */
+                    for (unsigned i = 0; i < buff_size; i++) {
+                        buff_ptr[i] = (char) input_getc();
+                    }
+                    f->eax = buff_size;
                 } else {
                     f->eax = file_read(pcb->fdt[fd], buff_ptr, buff_size);
                 }

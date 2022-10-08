@@ -282,6 +282,9 @@ void process_exit(int exit_code) {
         }
     }
 
+    /* Allow writes to the executable file now that the process is exiting */
+    file_close(cur->executable);
+
     /* Destroy the current process's page directory and switch back
         to the kernel-only page directory. */
     pd = cur->pagedir;
@@ -419,6 +422,10 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
         goto done;
     }
 
+    /* Deny writes to executable of active process */
+    t->pcb->executable = file;
+    file_deny_write(file);
+
     /* Read and verify executable header. */
     if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr ||
             memcmp(ehdr.e_ident, "\177ELF\1\1\1", 7) || ehdr.e_type != 2 || ehdr.e_machine != 3 ||
@@ -488,8 +495,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
 
 done:
     /* We arrive here whether the load is successful or not. */
-    // free(file_name_copy);
-    file_close(file);
+    // file_close(file);
     return success;
 }
 

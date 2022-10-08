@@ -52,6 +52,8 @@ struct process {
     struct child_data *child_info;
 
     struct file* fdt[MAX_FD_NUM];
+
+    struct file* executable;
 };
 
 typedef struct child_data {
