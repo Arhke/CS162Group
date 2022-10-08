@@ -24,6 +24,17 @@ typedef void (*stub_fun)(pthread_fun, void*);
    to the PCB, and the PCB will have a pointer to the main thread
    of the process, which is `special`. */
 
+
+#define PARENT_FREE 2   /* Bit mask for if parent needs to free */
+enum {
+    NULL_STATUS,        /* Offset for some bit magic */
+    EXITED,             /* Parent has exited */
+    UNKNOWN,            /* Parent has neither exited nor waited */
+    WAITING             /* Parent is actively waiting */
+};
+
+typedef struct child_data;
+
 struct process {
     /* Owned by process.c. */
     uint32_t* pagedir;                  /* Page directory. */
@@ -37,16 +48,15 @@ struct process {
     struct semaphore pcb_init_sema;     /* Semaphore that ensures child PCB is initialized before parent finishes exec */
     struct semaphore wait_sema;         /* Semaphore that ensures child finishes executing before parent finishes wait */
 
-    struct rw_lock list_iteration_lock; /* Synchronization of child/parent list iteration and list element insertion/
-                                            deletion. To iterate, use reader, to add element, use writer. */
+    struct child_data *child_info;
 };
 
 typedef struct child_data {
-    struct process *child_process;      /* Pointer to the child process, NULL if child has exited */
     pid_t pid;                          /* PID of child process */
     struct lock elem_modification_lock; /* Synchronization of concurrent read/writes to child_data */
-    bool is_waiting;                    /* Whether parent is waiting on this child */
+    int parent_status;                  /* Status of the parent described by the enums above */
     int exit_code;                      /* Exit code of child process */
+    bool has_exited;                    /* Whether child has exited */
     struct list_elem elem;
 } child_data_t;
 

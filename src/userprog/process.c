@@ -31,8 +31,6 @@ bool setup_thread(void (**eip)(void), void** esp);
 
 /* Helper function that sets up PCB that can also be called by normal processes */
 bool setup_pcb(void) {
-    struct thread* t = thread_current();
-
     /* Allocate process control block
         It is imoprtant that this is a call to calloc and not malloc,
         so that t->pcb->pagedir is guaranteed to be NULL (the kernel's
@@ -42,15 +40,14 @@ bool setup_pcb(void) {
     // does not try to activate our uninitialized pagedir
 
     /* Note, calloc innately sets parent pointer to NULL */
-    t->pcb = calloc(sizeof(struct process), 1);
-    bool success = t->pcb != NULL;
+    struct process *p = thread_current()->pcb = calloc(sizeof(struct process), 1);
+    bool success = p != NULL;
 
     if (success) {
         /* Initialize parent-child data in process */
-        list_init(&(t->pcb->child_processes));
-        sema_init(&(t->pcb->pcb_init_sema), 0);
-        sema_init(&(t->pcb->wait_sema), 0);
-        rw_lock_init(&(t->pcb->list_iteration_lock));
+        list_init(&(p->child_processes));
+        sema_init(&(p->pcb_init_sema), 0);
+        sema_init(&(p->wait_sema), 0);
     }
 
     return success;
@@ -73,7 +70,8 @@ void userprog_init(void) {
    process id, or TID_ERROR if the thread cannot be created. */
 pid_t process_execute(const char* file_name) {
     char* fn_copy;
-    struct thread *parent = thread_current(), *t;
+    struct process *parent = thread_current()->pcb;
+    struct thread *t;
 
     /* Make a copy of FILE_NAME.
         Otherwise there's a race between the caller and load(). */
@@ -96,14 +94,19 @@ pid_t process_execute(const char* file_name) {
 
     void **aux = malloc(2 * sizeof(void *));
     aux[0] = (void *) fn_copy;
-    aux[1] = (void *) parent->pcb;
+    aux[1] = (void *) parent;
 
     t = thread_create(executable, PRI_DEFAULT, start_process, (void *) aux);
 
     if (t->tid == TID_ERROR) {
         palloc_free_page(fn_copy);
     } else {
-        sema_down(&parent->pcb->pcb_init_sema);
+        /* Wait for child to finish initializing PCB */
+        sema_down(&parent->pcb_init_sema);
+
+        /* Add child data to list of child processes. It is ok if child has
+            already exited because parent still has pointer to valid data */
+        list_push_back(&parent->child_processes, &t->pcb->child_info->elem);
     }
     return t->tid;
 }
@@ -113,7 +116,6 @@ pid_t process_execute(const char* file_name) {
 static void start_process(void* aux) {
     char* file_name = (char*) ((void **) aux)[0];
     struct process *parent = (struct process *) ((void **) aux)[1];
-
     struct thread* t = thread_current();
 
 
@@ -129,19 +131,15 @@ static void start_process(void* aux) {
         // Setup child data 
         child_data_t *child = malloc(sizeof(child_data_t));
         *child = (child_data_t) {
-            .child_process = t->pcb,
             .pid = t->tid,
             .elem_modification_lock = {0},
-            .is_waiting = false,
+            .parent_status = UNKNOWN,
             .exit_code = 0,
+            .has_exited = false,
             .elem = {0}
         };
         lock_init(&child->elem_modification_lock);
-
-        /* Add self to list of children in parent before executing */
-        rw_lock_acquire(&parent->list_iteration_lock, RW_WRITER);
-            list_push_back(&parent->child_processes, &child->elem);
-        rw_lock_release(&parent->list_iteration_lock, RW_WRITER);
+        t->pcb->child_info = child;
 
         // Continue initializing the PCB as normal
         t->pcb->main_thread = t;
@@ -217,22 +215,20 @@ int process_wait(pid_t child_pid) {
         return -1;
     } else {
         lock_acquire(&cd->elem_modification_lock);
-        if (cd->child_process == NULL) {
+        if (cd->has_exited) {
             /* If child already exited, no contest for modification of list element, can read
                 return code after releasing the lock */
             lock_release(&cd->elem_modification_lock);
         } else {
             /* Else, set waiting to true. Release the lock and wait for the child to exit */
-            cd->is_waiting = true;
+            cd->parent_status = WAITING;
             lock_release(&cd->elem_modification_lock);
             sema_down(&parent->wait_sema);
         }
         int result = cd->exit_code;
 
         /* On the first call to wait, remove the child from the list so wait cannot be called twice */
-        rw_lock_acquire(&parent->list_iteration_lock, RW_WRITER);
-            list_remove(e);
-        rw_lock_release(&parent->list_iteration_lock, RW_WRITER);
+        list_remove(e);
         free(cd);
 
         return result;
@@ -253,40 +249,34 @@ void process_exit(int exit_code) {
 
     /* Update the parent process that the child has exited */
     struct process *parent = cur->parent_process;
-    if (parent != NULL) {
-        struct list_elem *e;
-        child_data_t *cd;
-        rw_lock_acquire(&parent->list_iteration_lock, RW_READER);
-            e = list_begin(&parent->child_processes);
-            while ((cd = list_entry(e, child_data_t, elem))->child_process != cur) {
-                e = list_next(e);
-            }
-        rw_lock_release(&parent->list_iteration_lock, RW_READER);
+    child_data_t *cd = cur->child_info;
 
-        lock_acquire(&cd->elem_modification_lock);
-            cd->child_process = NULL;
-            cd->exit_code = exit_code;
-            if (cd->is_waiting) {
-                sema_up(&parent->wait_sema);
-            }
+    lock_acquire(&cd->elem_modification_lock);
+    if (cd->parent_status & PARENT_FREE) {
+        cd->has_exited = true;
+        cd->exit_code = exit_code;
         lock_release(&cd->elem_modification_lock);
+        if (cd->parent_status == WAITING) {
+            sema_up(&parent->wait_sema);
+        }
+    } else {
+        free(cd);
     }
-
 
     /* Update all children processes that the parent no longer exists */
     struct list_elem *e;
-    child_data_t *cd;
-    rw_lock_acquire(&cur->list_iteration_lock, RW_WRITER);
-        while (!list_empty(&cur->child_processes)) {
-            e = list_pop_front(&cur->child_processes);
-            cd = list_entry(e, child_data_t, elem);
-            if (cd->child_process != NULL) {
-                cd->child_process->parent_process = NULL;
-            }
+    while (!list_empty(&cur->child_processes)) {
+        e = list_pop_front(&cur->child_processes);
+        cd = list_entry(e, child_data_t, elem);
+        lock_acquire(&cd->elem_modification_lock);
+        if (cd->has_exited) {
+            lock_release(&cd->elem_modification_lock);
             free(cd);
+        } else {
+            cd->parent_status = EXITED;
+            lock_release(&cd->elem_modification_lock);
         }
-    rw_lock_release(&cur->list_iteration_lock, RW_WRITER);
-
+    }
 
     /* Destroy the current process's page directory and switch back
         to the kernel-only page directory. */
@@ -317,17 +307,17 @@ void process_exit(int exit_code) {
 /* Sets up the CPU for running user code in the current
    thread. This function is called on every context switch. */
 void process_activate(void) {
-  struct thread* t = thread_current();
+    struct process* p = thread_current()->pcb;
 
-  /* Activate thread's page tables. */
-  if (t->pcb != NULL && t->pcb->pagedir != NULL)
-    pagedir_activate(t->pcb->pagedir);
-  else
-    pagedir_activate(NULL);
+    /* Activate thread's page tables. */
+    if (p != NULL && p->pagedir != NULL)
+        pagedir_activate(p->pagedir);
+    else
+        pagedir_activate(NULL);
 
-  /* Set thread's kernel stack for use in processing interrupts.
-     This does nothing if this is not a user process. */
-  tss_update();
+    /* Set thread's kernel stack for use in processing interrupts.
+        This does nothing if this is not a user process. */
+    tss_update();
 }
 
 /* We load ELF binaries.  The following definitions are taken
@@ -346,34 +336,34 @@ typedef uint16_t Elf32_Half;
 /* Executable header.  See [ELF1] 1-4 to 1-8.
    This appears at the very beginning of an ELF binary. */
 struct Elf32_Ehdr {
-  unsigned char e_ident[16];
-  Elf32_Half e_type;
-  Elf32_Half e_machine;
-  Elf32_Word e_version;
-  Elf32_Addr e_entry;
-  Elf32_Off e_phoff;
-  Elf32_Off e_shoff;
-  Elf32_Word e_flags;
-  Elf32_Half e_ehsize;
-  Elf32_Half e_phentsize;
-  Elf32_Half e_phnum;
-  Elf32_Half e_shentsize;
-  Elf32_Half e_shnum;
-  Elf32_Half e_shstrndx;
+    unsigned char e_ident[16];
+    Elf32_Half e_type;
+    Elf32_Half e_machine;
+    Elf32_Word e_version;
+    Elf32_Addr e_entry;
+    Elf32_Off e_phoff;
+    Elf32_Off e_shoff;
+    Elf32_Word e_flags;
+    Elf32_Half e_ehsize;
+    Elf32_Half e_phentsize;
+    Elf32_Half e_phnum;
+    Elf32_Half e_shentsize;
+    Elf32_Half e_shnum;
+    Elf32_Half e_shstrndx;
 };
 
 /* Program header.  See [ELF1] 2-2 to 2-4.
    There are e_phnum of these, starting at file offset e_phoff
    (see [ELF1] 1-6). */
 struct Elf32_Phdr {
-  Elf32_Word p_type;
-  Elf32_Off p_offset;
-  Elf32_Addr p_vaddr;
-  Elf32_Addr p_paddr;
-  Elf32_Word p_filesz;
-  Elf32_Word p_memsz;
-  Elf32_Word p_flags;
-  Elf32_Word p_align;
+    Elf32_Word p_type;
+    Elf32_Off p_offset;
+    Elf32_Addr p_vaddr;
+    Elf32_Addr p_paddr;
+    Elf32_Word p_filesz;
+    Elf32_Word p_memsz;
+    Elf32_Word p_flags;
+    Elf32_Word p_align;
 };
 
 /* Values for p_type.  See [ELF1] 2-3. */
