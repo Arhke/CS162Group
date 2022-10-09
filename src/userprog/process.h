@@ -42,6 +42,8 @@ struct process {
     char process_name[32];              /* Name of the main thread */
     struct thread* main_thread;         /* Pointer to main thread */
 
+    char *executable;                   /* Name of the executable */
+    char *process_args;                 /* Args passed into the executable */
 
     struct process *parent_process;     /* Pointer to parent process */
     struct list child_processes;        /* List of struct child_data representing child processes */
@@ -49,7 +51,7 @@ struct process {
     struct semaphore pcb_init_sema;     /* Semaphore that ensures child PCB is initialized before parent finishes exec */
     struct semaphore wait_sema;         /* Semaphore that ensures child finishes executing before parent finishes wait */
 
-    struct child_data *child_info;
+    struct child_data *child_info;      /* Data shared with child */
 
     struct file* fdt[MAX_FD_NUM];
 

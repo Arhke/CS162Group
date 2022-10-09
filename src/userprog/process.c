@@ -25,7 +25,7 @@
 
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
-static bool load(const char* file_name, void (**eip)(void), void** esp);
+static bool load(const char *executable_name, const char *file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 
 
@@ -96,9 +96,10 @@ pid_t process_execute(const char* file_name) {
         return TID_ERROR;
     }
 
-    void **aux = malloc(2 * sizeof(void *));
-    aux[0] = (void *) fn_copy;
-    aux[1] = (void *) parent;
+    void **aux = malloc(3 * sizeof(void *));
+    aux[0] = (void *) parent;
+    aux[1] = (void *) executable;
+    aux[2] = (void *) fn_copy;
 
     t = thread_create(executable, PRI_DEFAULT, start_process, (void *) aux);
 
@@ -118,8 +119,9 @@ pid_t process_execute(const char* file_name) {
 /* A thread function that loads a user process and starts it
    running. */
 static void start_process(void* aux) {
-    char* file_name = (char*) ((void **) aux)[0];
-    struct process *parent = (struct process *) ((void **) aux)[1];
+    struct process *parent = (struct process *) ((void **) aux)[0];
+    char *executable = (char *) ((void **) aux)[1];
+    char *file_name = (char*) ((void **) aux)[2];
     struct thread* t = thread_current();
 
 
@@ -131,6 +133,10 @@ static void start_process(void* aux) {
     if (success) {
         // Set the pointer to the parent process
         t->pcb->parent_process = parent;
+
+        // Set executable and argument names
+        t->pcb->executable = executable;
+        t->pcb->process_args = file_name;
 
         // Setup child data 
         child_data_t *child = malloc(sizeof(child_data_t));
@@ -144,6 +150,7 @@ static void start_process(void* aux) {
         };
         lock_init(&child->elem_modification_lock);
         t->pcb->child_info = child;
+
 
         // Continue initializing the PCB as normal
         t->pcb->main_thread = t;
@@ -159,7 +166,7 @@ static void start_process(void* aux) {
         if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
         if_.cs = SEL_UCSEG;
         if_.eflags = FLAG_IF | FLAG_MBS;
-        success = load(file_name, &if_.eip, &if_.esp);
+        success = load(executable, file_name, &if_.eip, &if_.esp);
     }
 
     /* Handle failure with succesful PCB malloc. Must free the PCB */
@@ -250,6 +257,9 @@ void process_exit(int exit_code) {
         thread_exit();
         NOT_REACHED();
     }
+
+    /* Free the executable name */
+    free(cur->executable);
 
     /* Update the parent process that the child has exited */
     struct process *parent = cur->parent_process;
@@ -397,17 +407,13 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
-bool load(const char* file_name, void (**eip)(void), void** esp) {
+bool load(const char *executable, const char* file_name, void (**eip)(void), void** esp) {
     struct thread* t = thread_current();
     struct Elf32_Ehdr ehdr;
     struct file* file = NULL;
     off_t file_ofs;
     bool success = false;
     int i;
-
-    char *file_name_copy = malloc(strlen(file_name) + 1);
-    memcpy(file_name_copy, file_name, strlen(file_name) + 1);
-    char *executable = strtok_r(file_name_copy, " ", &file_name_copy);
 
     /* Allocate and activate page directory. */
     t->pcb->pagedir = pagedir_create();
@@ -613,6 +619,7 @@ static bool setup_stack(void **esp, const char *file_name) {
             /* Computation of stack memory requirements */
             int argc = 0, capacity = 1;
             char *token, *save_ptr = malloc(strlen(file_name) + 1);
+            char *save_ptr_cpy = save_ptr;
 
             /* Make a copy of file_name for tokenization */
             strlcpy(save_ptr, file_name, strlen(file_name) + 1);
@@ -668,6 +675,7 @@ static bool setup_stack(void **esp, const char *file_name) {
             stack_ptr[argc] = NULL;
 
             /* Free memory used for computations */
+            free(save_ptr_cpy);
             free(cumulative_lengths);
             free(tokens);
         } else {

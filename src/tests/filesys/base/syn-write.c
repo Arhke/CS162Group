@@ -9,6 +9,7 @@
 #include "tests/filesys/base/syn-write.h"
 #include "tests/lib.h"
 #include "tests/main.h"
+#include "filesys/filesys.h"
 
 char buf1[BUF_SIZE];
 char buf2[BUF_SIZE];
