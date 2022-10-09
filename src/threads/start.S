@@ -29,6 +29,7 @@ start:
 	mov %ax, %ds
 	mov %ax, %es
 	finit
+	
 # Set string instructions to go upward.
 	cld
 
