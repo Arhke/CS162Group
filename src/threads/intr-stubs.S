@@ -18,11 +18,16 @@
 .func intr_entry
 intr_entry:
 	/* Save caller's registers. */
-	pushl %ds
+  subl $112, %esp  
+  # mov %ds, 0(%esp)
+  fsave 0(%esp)
+  pushl %ds
 	pushl %es
 	pushl %fs
 	pushl %gs
 	pushal
+  
+
 
 	/* Set up kernel environment. */
 	cld			/* String instructions go upward. */
@@ -30,7 +35,7 @@ intr_entry:
 	mov %eax, %ds
 	mov %eax, %es
 	leal 56(%esp), %ebp	/* Set up frame pointer. */
-
+  
 	/* Call interrupt handler. */
 	pushl %esp
 .globl intr_handler
@@ -50,12 +55,16 @@ intr_entry:
 .func intr_exit
 intr_exit:
 	/* Restore caller's registers. */
+  
 	popal
 	popl %gs
 	popl %fs
 	popl %es
-	popl %ds
-
+  popl %ds
+  frstor 0(%esp)
+  addl $112, %esp  
+  # mov %ds, 0(%esp)
+  
         /* Discard `struct intr_frame' vec_no, error_code,
            frame_pointer members. */
 	addl $12, %esp

@@ -9,8 +9,9 @@ struct switch_threads_frame {
   uint32_t ebp;        /*  8: Saved %ebp. */
   uint32_t ebx;        /* 12: Saved %ebx. */
   void (*eip)(void);   /* 16: Return address. */
-  struct thread* cur;  /* 20: switch_threads()'s CUR argument. */
-  struct thread* next; /* 24: switch_threads()'s NEXT argument. */
+  // char fpu[108];       /* 20: FPU SAVE*/
+  struct thread* cur;  /* 128: switch_threads()'s CUR argument. */
+  struct thread* next; /* 132: switch_threads()'s NEXT argument. */
   // char fpu[108];
 };
 
