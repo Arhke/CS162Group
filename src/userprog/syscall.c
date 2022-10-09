@@ -236,5 +236,10 @@ static void syscall_handler(struct intr_frame *f) {
             lock_release(&fs_lock);
 
             break;
-    }
+        case SYS_COMPUTE_E:
+            // int n = args[1];
+            // assert(n > 0);
+            f->eax = sys_sum_to_e(args[1]);
+            break;
+        }
 }
