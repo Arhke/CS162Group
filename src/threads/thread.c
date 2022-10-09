@@ -424,6 +424,7 @@ static void kernel_thread(thread_func* function, void* aux) {
   ASSERT(function != NULL);
 
   intr_enable(); /* The scheduler runs with interrupts off. */
+  asm volatile("finit");
   function(aux); /* Execute the thread function. */
   thread_exit(); /* If function() returns, kill the thread. */
 }
