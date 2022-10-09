@@ -11,6 +11,7 @@ struct switch_threads_frame {
   void (*eip)(void);   /* 16: Return address. */
   struct thread* cur;  /* 20: switch_threads()'s CUR argument. */
   struct thread* next; /* 24: switch_threads()'s NEXT argument. */
+  // char fpu[108];
 };
 
 /* Switches from CUR, which must be the running thread, to NEXT,
