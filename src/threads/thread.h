@@ -81,34 +81,35 @@ typedef int tid_t;
    only because they are mutually exclusive: only a thread in the
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
+// #define USERPROG
 struct thread {
-  /* Owned by thread.c. */
-  tid_t tid;                 /* Thread identifier. */
-  enum thread_status status; /* Thread state. */
-  char name[16];             /* Name (for debugging purposes). */
-  uint8_t* stack;            /* Saved stack pointer. */
-  int priority;              /* Priority. */
-  struct list_elem allelem;  /* List element for all threads list. */
+    /* Owned by thread.c. */
+    tid_t tid;                 /* Thread identifier. */
+    enum thread_status status; /* Thread state. */
+    char name[32];             /* Name (for debugging purposes). */
+    uint8_t* stack;            /* Saved stack pointer. */
+    int priority;              /* Priority. */
+    struct list_elem allelem;  /* List element for all threads list. */
 
-  /* Shared between thread.c and synch.c. */
-  struct list_elem elem; /* List element. */
+    /* Shared between thread.c and synch.c. */
+    struct list_elem elem; /* List element. */
 
 #ifdef USERPROG
-  /* Owned by process.c. */
-  struct process* pcb; /* Process control block if this thread is a userprog */
+    /* Owned by process.c. */
+    struct process* pcb; /* Process control block if this thread is a userprog */
 #endif
 
-  /* Owned by thread.c. */
-  unsigned magic; /* Detects stack overflow. */
+    /* Owned by thread.c. */
+    unsigned magic; /* Detects stack overflow. */
 };
 
 /* Types of scheduler that the user can request the kernel
  * use to schedule threads at runtime. */
 enum sched_policy {
-  SCHED_FIFO,  // First-in, first-out scheduler
-  SCHED_PRIO,  // Strict-priority scheduler with round-robin tiebreaking
-  SCHED_FAIR,  // Implementation-defined fair scheduler
-  SCHED_MLFQS, // Multi-level Feedback Queue Scheduler
+    SCHED_FIFO,  // First-in, first-out scheduler
+    SCHED_PRIO,  // Strict-priority scheduler with round-robin tiebreaking
+    SCHED_FAIR,  // Implementation-defined fair scheduler
+    SCHED_MLFQS, // Multi-level Feedback Queue Scheduler
 };
 #define SCHED_DEFAULT SCHED_FIFO
 
@@ -119,13 +120,16 @@ enum sched_policy {
 extern enum sched_policy active_sched_policy;
 
 void thread_init(void);
+void fdt_init(struct process* p);
+int open_fd(struct process* p);
+bool valid_fd(struct process* p, int fd);
 void thread_start(void);
 
 void thread_tick(void);
 void thread_print_stats(void);
 
 typedef void thread_func(void* aux);
-tid_t thread_create(const char* name, int priority, thread_func*, void*);
+struct thread *thread_create(const char* name, int priority, thread_func*, void*);
 
 void thread_block(void);
 void thread_unblock(struct thread*);

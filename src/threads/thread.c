@@ -117,6 +117,31 @@ void thread_init(void) {
   initial_thread->tid = allocate_tid();
 }
 
+/* Initializes the process's file descriptor table */
+void fdt_init(struct process* p) {
+  for (int i = 0; i < MAX_FD_NUM; i++) {
+    p->fdt[i] = NULL;
+  }
+}
+
+/* Returns the first available file descriptor index in the current
+   process' file descriptor table. */
+int open_fd(struct process* p) {
+  int fd = -1;
+  for (int i = 2; i < MAX_FD_NUM; i++) {
+    if (p->fdt[i] == NULL) {
+      fd = i;
+      break;
+    }
+  }
+  return fd;
+}
+
+/* Check if a file descriptor corresponds to a valid open file in process p */
+bool valid_fd(struct process* p, int fd) {
+  return fd >= 0 && fd < MAX_FD_NUM && (fd < 3 || p->fdt[fd] != NULL);
+}
+
 /* Starts preemptive thread scheduling by enabling interrupts.
    Also creates the idle thread. */
 void thread_start(void) {
@@ -173,43 +198,43 @@ void thread_print_stats(void) {
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
-tid_t thread_create(const char* name, int priority, thread_func* function, void* aux) {
-  struct thread* t;
-  struct kernel_thread_frame* kf;
-  struct switch_entry_frame* ef;
-  struct switch_threads_frame* sf;
-  tid_t tid;
+struct thread *thread_create(const char* name, int priority, thread_func* function, void* aux) {
+    struct thread *t;
+    struct kernel_thread_frame* kf;
+    struct switch_entry_frame* ef;
+    struct switch_threads_frame* sf;
+    tid_t tid;
 
-  ASSERT(function != NULL);
+    ASSERT(function != NULL);
 
-  /* Allocate thread. */
-  t = palloc_get_page(PAL_ZERO);
-  if (t == NULL)
-    return TID_ERROR;
+    /* Allocate thread. */
+    t = palloc_get_page(PAL_ZERO);
+    if (t == NULL) {
+        return TID_ERROR;
+    }
 
-  /* Initialize thread. */
-  init_thread(t, name, priority);
-  tid = t->tid = allocate_tid();
+    /* Initialize thread. */
+    init_thread(t, name, priority);
+    tid = t->tid = allocate_tid();
 
-  /* Stack frame for kernel_thread(). */
-  kf = alloc_frame(t, sizeof *kf);
-  kf->eip = NULL;
-  kf->function = function;
-  kf->aux = aux;
+    /* Stack frame for kernel_thread(). */
+    kf = alloc_frame(t, sizeof *kf);
+    kf->eip = NULL;
+    kf->function = function;
+    kf->aux = aux;
 
-  /* Stack frame for switch_entry(). */
-  ef = alloc_frame(t, sizeof *ef);
-  ef->eip = (void (*)(void))kernel_thread;
+    /* Stack frame for switch_entry(). */
+    ef = alloc_frame(t, sizeof *ef);
+    ef->eip = (void (*)(void))kernel_thread;
 
-  /* Stack frame for switch_threads(). */
-  sf = alloc_frame(t, sizeof *sf);
-  sf->eip = switch_entry;
-  sf->ebp = 0;
+    /* Stack frame for switch_threads(). */
+    sf = alloc_frame(t, sizeof *sf);
+    sf->eip = switch_entry;
+    sf->ebp = 0;
 
-  /* Add to run queue. */
-  thread_unblock(t);
-
-  return tid;
+    /* Add to run queue. */
+    thread_unblock(t);
+    return t;
 }
 
 /* Puts the current thread to sleep.  It will not be scheduled
@@ -249,15 +274,18 @@ static void thread_enqueue(struct thread* t) {
    it may expect that it can atomically unblock a thread and
    update other data. */
 void thread_unblock(struct thread* t) {
-  enum intr_level old_level;
+    enum intr_level old_level;
 
-  ASSERT(is_thread(t));
+    ASSERT(is_thread(t));
 
-  old_level = intr_disable();
-  ASSERT(t->status == THREAD_BLOCKED);
-  thread_enqueue(t);
-  t->status = THREAD_READY;
-  intr_set_level(old_level);
+    old_level = intr_disable();
+    if (t->status != THREAD_BLOCKED) {
+        printf("Thread status: %d\n", t->status);
+    }
+    ASSERT(t->status == THREAD_BLOCKED);
+    thread_enqueue(t);
+    t->status = THREAD_READY;
+    intr_set_level(old_level);
 }
 
 /* Returns the name of the running thread. */
@@ -286,16 +314,17 @@ tid_t thread_tid(void) { return thread_current()->tid; }
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void thread_exit(void) {
-  ASSERT(!intr_context());
+    ASSERT(!intr_context());
 
-  /* Remove thread from all threads list, set our status to dying,
-     and schedule another process.  That process will destroy us
-     when it calls thread_switch_tail(). */
-  intr_disable();
-  list_remove(&thread_current()->allelem);
-  thread_current()->status = THREAD_DYING;
-  schedule();
-  NOT_REACHED();
+    /* Remove thread from all threads list, set our status to dying,
+        and schedule another process.  That process will destroy us
+        when it calls thread_switch_tail(). */
+    intr_disable();
+    list_remove(&thread_current()->allelem);
+    thread_current()->status = THREAD_DYING;
+
+    schedule();
+    NOT_REACHED();
 }
 
 /* Yields the CPU.  The current thread is not put to sleep and
@@ -417,23 +446,23 @@ static bool is_thread(struct thread* t) { return t != NULL && t->magic == THREAD
 /* Does basic initialization of T as a blocked thread named
    NAME. */
 static void init_thread(struct thread* t, const char* name, int priority) {
-  enum intr_level old_level;
+    enum intr_level old_level;
 
-  ASSERT(t != NULL);
-  ASSERT(PRI_MIN <= priority && priority <= PRI_MAX);
-  ASSERT(name != NULL);
+    ASSERT(t != NULL);
+    ASSERT(PRI_MIN <= priority && priority <= PRI_MAX);
+    ASSERT(name != NULL);
 
-  memset(t, 0, sizeof *t);
-  t->status = THREAD_BLOCKED;
-  strlcpy(t->name, name, sizeof t->name);
-  t->stack = (uint8_t*)t + PGSIZE;
-  t->priority = priority;
-  t->pcb = NULL;
-  t->magic = THREAD_MAGIC;
+    memset(t, 0, sizeof *t);
+    t->status = THREAD_BLOCKED;
+    strlcpy(t->name, name, sizeof t->name);
+    t->stack = (uint8_t*)t + PGSIZE;
+    t->priority = priority;
+    t->pcb = NULL;
+    t->magic = THREAD_MAGIC;
 
-  old_level = intr_disable();
-  list_push_back(&all_list, &t->allelem);
-  intr_set_level(old_level);
+    old_level = intr_disable();
+    list_push_back(&all_list, &t->allelem);
+    intr_set_level(old_level);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

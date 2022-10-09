@@ -2,12 +2,14 @@
 #define USERPROG_PROCESS_H
 
 #include "threads/thread.h"
+#include "threads/synch.h"
 #include <stdint.h>
 
 // At most 8MB can be allocated to the stack
 // These defines will be used in Project 2: Multithreading
 #define MAX_STACK_PAGES (1 << 11)
 #define MAX_THREADS 127
+#define MAX_FD_NUM 128
 
 /* PIDs and TIDs are the same type. PID should be
    the TID of the main thread of the process */
@@ -22,18 +24,54 @@ typedef void (*stub_fun)(pthread_fun, void*);
    PCB from the TCB. All TCBs in a process will have a pointer
    to the PCB, and the PCB will have a pointer to the main thread
    of the process, which is `special`. */
-struct process {
-  /* Owned by process.c. */
-  uint32_t* pagedir;          /* Page directory. */
-  char process_name[16];      /* Name of the main thread */
-  struct thread* main_thread; /* Pointer to main thread */
+
+
+#define PARENT_FREE 2   /* Bit mask for if parent needs to free */
+enum {
+    NULL_STATUS,        /* Offset for some bit magic */
+    EXITED,             /* Parent has exited */
+    UNKNOWN,            /* Parent has neither exited nor waited */
+    WAITING             /* Parent is actively waiting */
 };
 
+typedef struct child_data;
+
+struct process {
+    /* Owned by process.c. */
+    uint32_t* pagedir;                  /* Page directory. */
+    char process_name[32];              /* Name of the main thread */
+    struct thread* main_thread;         /* Pointer to main thread */
+
+
+    struct process *parent_process;     /* Pointer to parent process */
+    struct list child_processes;        /* List of struct child_data representing child processes */
+
+    struct semaphore pcb_init_sema;     /* Semaphore that ensures child PCB is initialized before parent finishes exec */
+    struct semaphore wait_sema;         /* Semaphore that ensures child finishes executing before parent finishes wait */
+
+    struct child_data *child_info;
+
+    struct file* fdt[MAX_FD_NUM];
+
+    struct file* executable;
+};
+
+typedef struct child_data {
+    pid_t pid;                          /* PID of child process */
+    struct lock elem_modification_lock; /* Synchronization of concurrent read/writes to child_data */
+    int parent_status;                  /* Status of the parent described by the enums above */
+    int exit_code;                      /* Exit code of child process */
+    bool has_exited;                    /* Whether child has exited */
+    struct list_elem elem;
+} child_data_t;
+
+
+bool setup_pcb(void);
 void userprog_init(void);
 
 pid_t process_execute(const char* file_name);
 int process_wait(pid_t);
-void process_exit(void);
+void process_exit(int);
 void process_activate(void);
 
 bool is_main_thread(struct thread*, struct process*);
