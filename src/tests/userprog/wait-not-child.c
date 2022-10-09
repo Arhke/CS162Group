@@ -7,5 +7,7 @@
 #include "tests/main.h"
 
 void test_main(void) {
-  msg("wait(exec()) = %d", wait(exec("child-more")));
+  pid_t child = exec("child-more");
+  pid_t grandchild = wait(child);
+  msg("wait(exec()) = %d", wait(grandchild));
 }

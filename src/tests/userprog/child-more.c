@@ -8,6 +8,7 @@
 int main(void) {
   test_name = "child-more";
   
-  pid_t pid = wait(exec("child-simple"));
+  pid_t pid = exec("child-simple");
+  wait(pid);
   return pid;
 }
