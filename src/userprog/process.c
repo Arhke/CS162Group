@@ -135,7 +135,7 @@ static void start_process(void* aux) {
         t->pcb->parent_process = parent;
 
         // Set executable and argument names
-        t->pcb->executable = executable;
+        t->pcb->executable_name = executable;
         t->pcb->process_args = file_name;
 
         // Setup child data 
@@ -259,7 +259,7 @@ void process_exit(int exit_code) {
     }
 
     /* Free the executable name */
-    free(cur->executable);
+    free(cur->executable_name);
 
     /* Update the parent process that the child has exited */
     struct process *parent = cur->parent_process;

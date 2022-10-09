@@ -42,7 +42,7 @@ struct process {
     char process_name[32];              /* Name of the main thread */
     struct thread* main_thread;         /* Pointer to main thread */
 
-    char *executable;                   /* Name of the executable */
+    char *executable_name;                   /* Name of the executable */
     char *process_args;                 /* Args passed into the executable */
 
     struct process *parent_process;     /* Pointer to parent process */
