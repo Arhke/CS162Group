@@ -45,7 +45,7 @@ struct process {
     struct process *parent_process;     /* Pointer to parent process */
     struct list child_processes;        /* List of struct child_data representing child processes */
 
-    bool start_process_success;
+    struct child_data *start_process_result;
     struct semaphore pcb_init_sema;     /* Semaphore that ensures child PCB is initialized before parent finishes exec */
     struct semaphore wait_sema;         /* Semaphore that ensures child finishes executing before parent finishes wait */
 

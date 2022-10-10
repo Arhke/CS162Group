@@ -105,10 +105,10 @@ pid_t process_execute(const char* file_name) {
     } else {
         /* Wait for child to finish initializing PCB */
         sema_down(&parent->pcb_init_sema);
-        if (parent->start_process_success) {
+        if (parent->start_process_result) {
         /* Add child data to list of child processes. It is ok if child has
             already exited because parent still has pointer to valid data */
-        list_push_back(&parent->child_processes, &t->pcb->child_info->elem);
+        list_push_back(&parent->child_processes, &parent->start_process_result->elem);
         } else {
             return TID_ERROR;
         }
@@ -145,33 +145,21 @@ static void start_process(void* aux) {
             .elem = {0}
         };
         lock_init(&child->elem_modification_lock);
-        t->pcb->child_info = child;
-
+        parent->start_process_result = t->pcb->child_info = child;
 
         // Continue initializing the PCB as normal
         t->pcb->main_thread = t;
         strlcpy(t->pcb->process_name, t->name, sizeof t->name);
-
-        // Release parent to continue running now that PCB is setup
-        // sema_up(&parent->pcb_init_sema);
     }
 
     /* Initialize interrupt frame and load executable. */
     if (success) {
-        // sema_up(&parent->pcb_init_sema);
         memset(&if_, 0, sizeof if_);
         if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
         if_.cs = SEL_UCSEG;
         if_.eflags = FLAG_IF | FLAG_MBS;
-
-        // parent->start_process_success = success;
-        // sema_up(&parent->pcb_init_sema);
         success = load(executable, file_name, &if_.eip, &if_.esp, parent);
-        // sema_up(&parent->pcb_init_sema);
     }
-
-    // parent->start_process_success = success;
-    // sema_up(&parent->pcb_init_sema);
 
     /* Handle failure with succesful PCB malloc. Must free the PCB */
     if (!success && pcb_success) {
@@ -183,18 +171,16 @@ static void start_process(void* aux) {
         free(pcb_to_free);
     }
 
-    // sema_up(&parent->pcb_init_sema);
-
     /* Clean up. Exit on failure or jump to userspace */
     free(executable);
     free(file_name);
     if (!success) {
-        // sema_up(&parent->pcb_init_sema);
+        parent->start_process_result = NULL;
+        sema_up(&parent->pcb_init_sema);
         thread_exit();
+    } else {
+        sema_up(&parent->pcb_init_sema);
     }
-
-    parent->start_process_success = success;
-    sema_up(&parent->pcb_init_sema);
 
     /* Start the user process by simulating a return from an
         interrupt, implemented by intr_exit (in
@@ -265,8 +251,6 @@ void process_exit(int exit_code) {
         thread_exit();
         NOT_REACHED();
     }
-
-    /* Free the executable name */
 
     /* Update the parent process that the child has exited */
     struct process *parent = cur->parent_process;
