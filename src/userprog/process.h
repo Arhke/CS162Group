@@ -26,12 +26,10 @@ typedef void (*stub_fun)(pthread_fun, void*);
    of the process, which is `special`. */
 
 
-#define PARENT_FREE 2   /* Bit mask for if parent needs to free */
 enum {
-    NULL_STATUS,        /* Offset for some bit magic */
-    EXITED,             /* Parent has exited */
     UNKNOWN,            /* Parent has neither exited nor waited */
-    WAITING             /* Parent is actively waiting */
+    WAITING,            /* Parent is actively waiting */
+    EXITED              /* Parent has exited */
 };
 
 typedef struct child_data;
@@ -52,7 +50,6 @@ struct process {
     struct child_data *child_info;      /* Data shared with child */
 
     struct file* fdt[MAX_FD_NUM];
-
     struct file* executable;
 };
 

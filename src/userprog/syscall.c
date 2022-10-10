@@ -11,6 +11,7 @@
 #include "devices/input.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "lib/float.h"
 
 
 #define validate_space(if_, ptr, n) ({                                                                          \
