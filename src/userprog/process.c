@@ -25,7 +25,7 @@
 
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
-static bool load(const char *executable_name, const char *file_name, void (**eip)(void), void** esp);
+static bool load(const char *executable, const char *file_name, void (**eip)(void), void** esp, struct process *parent);
 bool setup_thread(void (**eip)(void), void** esp);
 
 
@@ -79,10 +79,10 @@ pid_t process_execute(const char* file_name) {
 
     /* Make a copy of FILE_NAME.
         Otherwise there's a race between the caller and load(). */
-    fn_copy = palloc_get_page(0);
+    fn_copy = malloc((strlen(file_name) + 1) * sizeof(char));
     if (fn_copy == NULL)
         return TID_ERROR;
-    strlcpy(fn_copy, file_name, PGSIZE);
+    strlcpy(fn_copy, file_name, strlen(file_name) + 1);
 
     /* Create a new thread to execute FILE_NAME. */
 
@@ -91,27 +91,27 @@ pid_t process_execute(const char* file_name) {
     memcpy(copy, file_name, strlen(file_name) + 1);
     char *executable = strtok_r(copy, " ", &copy);
 
-    if (filesys_open(executable) == NULL) {
+    /* if (filesys_open(executable) == NULL) {
         free(executable);
         return TID_ERROR;
-    }
+    } */
 
-    void **aux = malloc(3 * sizeof(void *));
-    aux[0] = (void *) parent;
-    aux[1] = (void *) executable;
-    aux[2] = (void *) fn_copy;
-
+    void *aux[3] = {parent, executable, fn_copy};
     t = thread_create(executable, PRI_DEFAULT, start_process, (void *) aux);
 
     if (t->tid == TID_ERROR) {
-        palloc_free_page(fn_copy);
+        free(executable);
+        free(fn_copy);
     } else {
         /* Wait for child to finish initializing PCB */
         sema_down(&parent->pcb_init_sema);
-
+        if (parent->start_process_success) {
         /* Add child data to list of child processes. It is ok if child has
             already exited because parent still has pointer to valid data */
         list_push_back(&parent->child_processes, &t->pcb->child_info->elem);
+        } else {
+            return TID_ERROR;
+        }
     }
     return t->tid;
 }
@@ -134,10 +134,6 @@ static void start_process(void* aux) {
         // Set the pointer to the parent process
         t->pcb->parent_process = parent;
 
-        // Set executable and argument names
-        t->pcb->executable_name = executable;
-        t->pcb->process_args = file_name;
-
         // Setup child data 
         child_data_t *child = malloc(sizeof(child_data_t));
         *child = (child_data_t) {
@@ -157,17 +153,28 @@ static void start_process(void* aux) {
         strlcpy(t->pcb->process_name, t->name, sizeof t->name);
 
         // Release parent to continue running now that PCB is setup
-        sema_up(&parent->pcb_init_sema);
+        // sema_up(&parent->pcb_init_sema);
     }
+
+    parent->start_process_success = success;
+    sema_up(&parent->pcb_init_sema);
 
     /* Initialize interrupt frame and load executable. */
     if (success) {
+        // sema_up(&parent->pcb_init_sema);
         memset(&if_, 0, sizeof if_);
         if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
         if_.cs = SEL_UCSEG;
         if_.eflags = FLAG_IF | FLAG_MBS;
-        success = load(executable, file_name, &if_.eip, &if_.esp);
+
+        // parent->start_process_success = success;
+        // sema_up(&parent->pcb_init_sema);
+        success = load(executable, file_name, &if_.eip, &if_.esp, parent);
+        // sema_up(&parent->pcb_init_sema);
     }
+
+    // parent->start_process_success = success;
+    // sema_up(&parent->pcb_init_sema);
 
     /* Handle failure with succesful PCB malloc. Must free the PCB */
     if (!success && pcb_success) {
@@ -177,16 +184,19 @@ static void start_process(void* aux) {
         struct process* pcb_to_free = t->pcb;
         t->pcb = NULL;
         free(pcb_to_free);
-
-        /* Release parent if PCB cannot be set up */
-        sema_up(&parent->pcb_init_sema);
     }
+
+    // sema_up(&parent->pcb_init_sema);
 
     /* Clean up. Exit on failure or jump to userspace */
-    palloc_free_page(file_name);
+    free(executable);
+    free(file_name);
     if (!success) {
+        sema_up(&parent->pcb_init_sema);
         thread_exit();
     }
+
+    // sema_up(&parent->pcb_init_sema);
 
     /* Start the user process by simulating a return from an
         interrupt, implemented by intr_exit (in
@@ -259,7 +269,6 @@ void process_exit(int exit_code) {
     }
 
     /* Free the executable name */
-    free(cur->executable_name);
 
     /* Update the parent process that the child has exited */
     struct process *parent = cur->parent_process;
@@ -269,9 +278,11 @@ void process_exit(int exit_code) {
     if (cd->parent_status & PARENT_FREE) {
         cd->has_exited = true;
         cd->exit_code = exit_code;
-        lock_release(&cd->elem_modification_lock);
         if (cd->parent_status == WAITING) {
+            lock_release(&cd->elem_modification_lock);
             sema_up(&parent->wait_sema);
+        } else {
+            lock_release(&cd->elem_modification_lock);
         }
     } else {
         free(cd);
@@ -407,7 +418,7 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
-bool load(const char *executable, const char* file_name, void (**eip)(void), void** esp) {
+bool load(const char *executable, const char* file_name, void (**eip)(void), void** esp, struct process *parent) {
     struct thread* t = thread_current();
     struct Elf32_Ehdr ehdr;
     struct file* file = NULL;
@@ -488,7 +499,9 @@ bool load(const char *executable, const char* file_name, void (**eip)(void), voi
                 goto done;
             break;
         }
+        // sema_up(&parent->pcb_init_sema);
     }
+    // sema_up(&parent->pcb_init_sema);
 
     /* Set up stack. */
     if (!setup_stack(esp, file_name))
