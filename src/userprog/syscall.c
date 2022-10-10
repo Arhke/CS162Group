@@ -11,6 +11,7 @@
 #include "devices/input.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "lib/float.h"
 
 
 #define validate_space(if_, ptr, n) ({                                                                          \
@@ -81,6 +82,7 @@ static void syscall_handler(struct intr_frame *f) {
             process_exit(args[1]);
             break;
         case SYS_EXEC:
+            lock_acquire(&fs_lock);
             validate_space(f, args, 2 * sizeof(uint32_t));
             file_name = (char *) args[1];
             validate_string(f, file_name);
@@ -91,6 +93,7 @@ static void syscall_handler(struct intr_frame *f) {
             } else {
                 f->eax = pid;
             }
+            lock_release(&fs_lock);
             break;
         case SYS_WAIT:
             validate_space(f, args, 2 * sizeof(uint32_t));
@@ -126,13 +129,16 @@ static void syscall_handler(struct intr_frame *f) {
             lock_acquire(&fs_lock);
                 pcb = thread_current()->pcb;
                 fd = open_fd(pcb);
-                desc = filesys_open(file_name);
-
-                if (fd == -1 || desc == NULL) {
+                if (fd == -1) {
                     f->eax = -1;
                 } else {
-                    pcb->fdt[fd] = desc;
-                    f->eax = fd;
+                    desc = filesys_open(file_name);
+                    if (desc == NULL) {
+                        f->eax = -1;
+                    } else {
+                        pcb->fdt[fd] = desc;
+                        f->eax = fd;
+                    }
                 }
             lock_release(&fs_lock);
                 
@@ -237,8 +243,6 @@ static void syscall_handler(struct intr_frame *f) {
 
             break;
         case SYS_COMPUTE_E:
-            // int n = args[1];
-            // assert(n > 0);
             f->eax = sys_sum_to_e(args[1]);
             break;
         }
