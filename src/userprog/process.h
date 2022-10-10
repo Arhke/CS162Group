@@ -34,7 +34,14 @@ enum {
     WAITING             /* Parent is actively waiting */
 };
 
-typedef struct child_data;
+typedef struct child_data {
+    pid_t pid;                          /* PID of child process */
+    struct lock elem_modification_lock; /* Synchronization of concurrent read/writes to child_data */
+    int parent_status;                  /* Status of the parent described by the enums above */
+    int exit_code;                      /* Exit code of child process */
+    bool has_exited;                    /* Whether child has exited */
+    struct list_elem elem;
+} child_data_t;
 
 struct process {
     /* Owned by process.c. */
@@ -49,21 +56,14 @@ struct process {
     struct semaphore pcb_init_sema;     /* Semaphore that ensures child PCB is initialized before parent finishes exec */
     struct semaphore wait_sema;         /* Semaphore that ensures child finishes executing before parent finishes wait */
 
-    struct child_data *child_info;
+    child_data_t *child_info;
 
     struct file* fdt[MAX_FD_NUM];
 
     struct file* executable;
 };
 
-typedef struct child_data {
-    pid_t pid;                          /* PID of child process */
-    struct lock elem_modification_lock; /* Synchronization of concurrent read/writes to child_data */
-    int parent_status;                  /* Status of the parent described by the enums above */
-    int exit_code;                      /* Exit code of child process */
-    bool has_exited;                    /* Whether child has exited */
-    struct list_elem elem;
-} child_data_t;
+
 
 
 bool setup_pcb(void);

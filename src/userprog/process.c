@@ -164,6 +164,10 @@ static void start_process(void* aux) {
 
     /* Handle failure with succesful PCB malloc. Must free the PCB */
     if (!success && pcb_success) {
+        child_data_t* child_to_free = t->pcb->child_info;
+        t->pcb->child_info = NULL;
+        free(child_to_free);
+
         // Avoid race where PCB is freed before t->pcb is set to NULL
         // If this happens, then an unfortuantely timed timer interrupt
         // can try to activate the pagedir, but it is now freed memory
@@ -259,9 +263,11 @@ void process_exit(int exit_code) {
     if (cd->parent_status & PARENT_FREE) {
         cd->has_exited = true;
         cd->exit_code = exit_code;
-        lock_release(&cd->elem_modification_lock);
         if (cd->parent_status == WAITING) {
+            lock_release(&cd->elem_modification_lock);
             sema_up(&parent->wait_sema);
+        } else {
+            lock_release(&cd->elem_modification_lock);
         }
     } else {
         free(cd);
@@ -280,6 +286,11 @@ void process_exit(int exit_code) {
             cd->parent_status = EXITED;
             lock_release(&cd->elem_modification_lock);
         }
+    }
+
+    /* Close all file descriptors */
+    for (int i = 0; i < MAX_FD_NUM; i++) {
+        file_close(cur->fdt[i]);
     }
 
     /* Allow writes to the executable file now that the process is exiting */
