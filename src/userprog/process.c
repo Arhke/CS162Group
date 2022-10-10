@@ -148,9 +148,6 @@ static void start_process(void* aux) {
         // Continue initializing the PCB as normal
         t->pcb->main_thread = t;
         strlcpy(t->pcb->process_name, t->name, sizeof t->name);
-
-        // Release parent to continue running now that PCB is setup
-        sema_up(&parent->pcb_init_sema);
     }
 
     /* Initialize interrupt frame and load executable. */
@@ -174,10 +171,9 @@ static void start_process(void* aux) {
         struct process* pcb_to_free = t->pcb;
         t->pcb = NULL;
         free(pcb_to_free);
-
-        /* Release parent if PCB cannot be set up */
-        sema_up(&parent->pcb_init_sema);
     }
+
+    sema_up(&parent->pcb_init_sema);
 
     /* Clean up. Exit on failure or jump to userspace */
     palloc_free_page(file_name);
