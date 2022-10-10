@@ -1,6 +1,5 @@
-/* Tries to open the same file twice,
-   which must succeed and must return a different file descriptor
-   in each case. */
+/* Opens the same file twice, then closes the second file descriptor.
+   Then, checks that the first file descriptor is still valid. */
 
 #include <syscall.h>
 #include "tests/lib.h"

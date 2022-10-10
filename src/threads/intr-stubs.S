@@ -19,6 +19,9 @@
 intr_entry:
 	/* Save caller's registers. */
 
+   /* The caller's FPU state is also pushed onto the stack by subtracting
+	   its size from the stack pointer and saving it with fsave. */
+
    subl $108, %esp  
    fsave 0(%esp)
    pushl %ds
@@ -54,7 +57,7 @@ intr_entry:
 .globl intr_exit
 .func intr_exit
 intr_exit:
-	/* Restore caller's registers. */
+	/* Restore caller's registers and FPU state. */
 
 	popal
 	popl %gs

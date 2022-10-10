@@ -23,6 +23,10 @@ switch_threads:
 	#
 	# This stack frame must match the one set up by thread_create()
 	# in size.
+	# 
+	# The caller's FPU state is also pushed onto the stack by subtracting
+	# its size from the stack pointer and saving it with fsave.
+
 	subl $108, %esp  
     fsave 0(%esp)
 	pushl %ebx
@@ -44,7 +48,7 @@ switch_threads:
 	movl SWITCH_NEXT(%esp), %ecx
 	movl (%ecx,%edx,1), %esp
 
-	# Restore caller's register state.
+	# Restore caller's register state and FPU state.
 	popl %edi
 	popl %esi
 	popl %ebp
