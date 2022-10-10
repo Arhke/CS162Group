@@ -81,6 +81,7 @@ static void syscall_handler(struct intr_frame *f) {
             process_exit(args[1]);
             break;
         case SYS_EXEC:
+            lock_acquire(&fs_lock);
             validate_space(f, args, 2 * sizeof(uint32_t));
             file_name = (char *) args[1];
             validate_string(f, file_name);
@@ -91,6 +92,7 @@ static void syscall_handler(struct intr_frame *f) {
             } else {
                 f->eax = pid;
             }
+            lock_release(&fs_lock);
             break;
         case SYS_WAIT:
             validate_space(f, args, 2 * sizeof(uint32_t));

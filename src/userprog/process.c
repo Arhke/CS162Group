@@ -156,9 +156,6 @@ static void start_process(void* aux) {
         // sema_up(&parent->pcb_init_sema);
     }
 
-    parent->start_process_success = success;
-    sema_up(&parent->pcb_init_sema);
-
     /* Initialize interrupt frame and load executable. */
     if (success) {
         // sema_up(&parent->pcb_init_sema);
@@ -192,11 +189,12 @@ static void start_process(void* aux) {
     free(executable);
     free(file_name);
     if (!success) {
-        sema_up(&parent->pcb_init_sema);
+        // sema_up(&parent->pcb_init_sema);
         thread_exit();
     }
 
-    // sema_up(&parent->pcb_init_sema);
+    parent->start_process_success = success;
+    sema_up(&parent->pcb_init_sema);
 
     /* Start the user process by simulating a return from an
         interrupt, implemented by intr_exit (in
