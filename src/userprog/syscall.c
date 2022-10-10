@@ -82,18 +82,17 @@ static void syscall_handler(struct intr_frame *f) {
             process_exit(args[1]);
             break;
         case SYS_EXEC:
-            lock_acquire(&fs_lock);
             validate_space(f, args, 2 * sizeof(uint32_t));
             file_name = (char *) args[1];
             validate_string(f, file_name);
-
-            pid_t pid = process_execute((char *) args[1]);
+            lock_acquire(&fs_lock);
+                pid_t pid = process_execute((char *) args[1]);
+            lock_release(&fs_lock);
             if (pid == TID_ERROR) {
                 f->eax = -1;
             } else {
                 f->eax = pid;
             }
-            lock_release(&fs_lock);
             break;
         case SYS_WAIT:
             validate_space(f, args, 2 * sizeof(uint32_t));
@@ -126,32 +125,30 @@ static void syscall_handler(struct intr_frame *f) {
             file_name = (char *) args[1];
             validate_string(f, file_name);
 
+            pcb = thread_current()->pcb;
             lock_acquire(&fs_lock);
-                pcb = thread_current()->pcb;
                 fd = open_fd(pcb);
                 desc = filesys_open(file_name);
-
-                if (fd == -1 || desc == NULL) {
-                    f->eax = -1;
-                } else {
-                    pcb->fdt[fd] = desc;
-                    f->eax = fd;
-                }
             lock_release(&fs_lock);
+            if (fd == -1 || desc == NULL) {
+                f->eax = -1;
+            } else {
+                pcb->fdt[fd] = desc;
+                f->eax = fd;
+            }
                 
             break;
         case SYS_FILESIZE:
             validate_space(f, args, 2 * sizeof(uint32_t));
             fd = args[1];
-
-            lock_acquire(&fs_lock);
-                pcb = thread_current()->pcb;
-                if (!valid_fd(pcb, fd)) {
-                    f->eax = -1;
-                } else {
+            pcb = thread_current()->pcb;
+            if (!valid_fd(pcb, fd)) {
+                f->eax = -1;
+            } else {
+                lock_acquire(&fs_lock);
                     f->eax = file_length(pcb->fdt[fd]);
-                }
-            lock_release(&fs_lock);
+                lock_release(&fs_lock);
+            }
             
             break;
         case SYS_READ:
@@ -161,20 +158,22 @@ static void syscall_handler(struct intr_frame *f) {
             buff_size = args[3];
             validate_space(f, buff_ptr, buff_size);
 
-            lock_acquire(&fs_lock);
-                pcb = thread_current()->pcb;
-                if (!valid_fd(pcb, fd) || fd == 1) {
-                    f->eax = -1;
-                } else if (fd == 0) {
+            pcb = thread_current()->pcb;
+            if (!valid_fd(pcb, fd) || fd == 1) {
+                f->eax = -1;
+            } else if (fd == 0) {
+                lock_acquire(&fs_lock);
                     /* Read using input_getc from devices/input.c */
                     for (unsigned i = 0; i < buff_size; i++) {
                         buff_ptr[i] = (char) input_getc();
                     }
-                    f->eax = buff_size;
-                } else {
+                lock_release(&fs_lock);
+                f->eax = buff_size;
+            } else {
+                lock_acquire(&fs_lock);
                     f->eax = file_read(pcb->fdt[fd], buff_ptr, buff_size);
-                }
-            lock_release(&fs_lock);
+                lock_release(&fs_lock);
+            }
 
             break;
         case SYS_WRITE:
@@ -184,17 +183,19 @@ static void syscall_handler(struct intr_frame *f) {
             buff_size = args[3];
             validate_string(f, buff_ptr);
             
-            lock_acquire(&fs_lock);
-                pcb = thread_current()->pcb;
-                if (!valid_fd(pcb, fd) || fd == 0) {
-                    f->eax = -1;
-                } else if (fd == 1) {
-                    /* Write to console */
+            pcb = thread_current()->pcb;
+            if (!valid_fd(pcb, fd) || fd == 0) {
+                f->eax = -1;
+            } else if (fd == 1) {
+                /* Write to console */
+                lock_acquire(&fs_lock);
                     putbuf(buff_ptr, buff_size);
-                } else {
+                lock_release(&fs_lock);
+            } else {
+                lock_acquire(&fs_lock);
                     f->eax = file_write(pcb->fdt[fd], buff_ptr, buff_size);
-                }
-            lock_release(&fs_lock);
+                lock_release(&fs_lock);
+            }
 
             break;
         case SYS_SEEK:
@@ -202,46 +203,46 @@ static void syscall_handler(struct intr_frame *f) {
             fd = args[1];
             unsigned pos = args[2];
 
-            lock_acquire(&fs_lock);
-                pcb = thread_current()->pcb;
-                if (valid_fd(pcb, fd)) {
+            pcb = thread_current()->pcb;
+            if (valid_fd(pcb, fd)) {
+                lock_acquire(&fs_lock);
                     file_seek(pcb->fdt[fd], pos);
-                }
-            lock_release(&fs_lock);
+                lock_release(&fs_lock);
+            }
 
             break;
         case SYS_TELL:
             validate_space(f, args, 2 * sizeof(uint32_t));
             fd = args[1];
 
-            lock_acquire(&fs_lock);
-                pcb = thread_current()->pcb;
-                if (!valid_fd(pcb, fd)) {
-                    f->eax = -1;
-                } else {
+            pcb = thread_current()->pcb;
+            if (!valid_fd(pcb, fd)) {
+                f->eax = -1;
+            } else {
+                lock_acquire(&fs_lock);
                     f->eax = file_tell(pcb->fdt[fd]);
-                }
-            lock_release(&fs_lock);
+                lock_release(&fs_lock);
+            }
 
             break;
         case SYS_CLOSE:
             validate_space(f, args, 2 * sizeof(uint32_t));
             fd = args[1];
 
-            lock_acquire(&fs_lock);
-                pcb = thread_current()->pcb;
-                if (!valid_fd(pcb, fd)) {
-                    f->eax = -1;
-                } else {
+            pcb = thread_current()->pcb;
+            if (!valid_fd(pcb, fd)) {
+                f->eax = -1;
+            } else {
+                lock_acquire(&fs_lock);
                     file_close(pcb->fdt[fd]);
-                    pcb->fdt[fd] = NULL;
-                }
-            lock_release(&fs_lock);
+                lock_release(&fs_lock);
+                pcb->fdt[fd] = NULL;
+            }
 
             break;
         case SYS_COMPUTE_E:
-            // int n = args[1];
-            // assert(n > 0);
+            validate_space(f, args, 2 * sizeof(uint32_t));
+
             f->eax = sys_sum_to_e(args[1]);
             break;
         }
