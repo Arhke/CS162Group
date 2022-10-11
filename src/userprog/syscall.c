@@ -14,6 +14,10 @@
 #include "lib/float.h"
 
 
+/* Argument validation macros: In order for a pointer to be valid, must be below PHYS_BASE
+    and have a mapping in the page directory */
+
+/* Validates n bytes of space starting at ptr by validating the start and end addresses */
 #define validate_space(if_, ptr, n) ({                                                                          \
     if ((void *) ((char *) ptr + n) > PHYS_BASE ||                                                              \
             !(pagedir_get_page(active_pd(), ptr) && pagedir_get_page(active_pd(), (char *) ptr + n - 1))) {     \
@@ -22,6 +26,7 @@
     }                                                                                                           \
 })
 
+/* Validates a string starting at str by iterating one byte at a time and looking for the null terminator */
 #define validate_string(if_, str) ({                                                                            \
     uint32_t *pd = active_pd();                                                                                 \
     if ((void *) str >= PHYS_BASE || pagedir_get_page(pd, str) == NULL) {                                       \
@@ -48,6 +53,7 @@ void syscall_init(void) {
 
 static void syscall_handler(struct intr_frame *f) {
     uint32_t* args = ((uint32_t*)f->esp);
+    /* Checks that the syscall number lies within bounds of the address space */
     validate_space(f, args, sizeof(uint32_t));
 
     /*
@@ -72,16 +78,19 @@ static void syscall_handler(struct intr_frame *f) {
         case SYS_PRACTICE:
             validate_space(f, args, 2 * sizeof(uint32_t));
 
+            /* Add one to argument, return to eax */
             f->eax = args[1] + 1;
 
             break;
         case SYS_HALT:
+            /* Call shutdown power off, nothing else to be done */
             shutdown_power_off();
 
             break;
         case SYS_EXIT:
             validate_space(f, args, 2 * sizeof(uint32_t));
 
+            /* Loads argument first then calls process_exit */
             f->eax = args[1];
             process_exit(args[1]);
 
@@ -91,19 +100,17 @@ static void syscall_handler(struct intr_frame *f) {
             file_name = (char *) args[1];
             validate_string(f, file_name);
 
+            /* Acquire the global filesystem lock to prevent modification of the executable before running */
             lock_acquire(&fs_lock);
-                pid_t pid = process_execute((char *) args[1]);
+                /* Put return value PID of execute into eax */
+                f->eax = process_execute((char *) args[1]);
             lock_release(&fs_lock);
-            if (pid == TID_ERROR) {
-                f->eax = -1;
-            } else {
-                f->eax = pid;
-            }
 
             break;
         case SYS_WAIT:
             validate_space(f, args, 2 * sizeof(uint32_t));
 
+            /* Call wait on the child PID */
             f->eax = process_wait(args[1]);
 
             break;
