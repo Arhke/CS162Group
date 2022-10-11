@@ -85,6 +85,10 @@ pid_t process_execute(const char* file_name) {
     /* Create a new thread to execute FILE_NAME. */
     /* Obtain the executable name */
     char *copy = malloc(strlen(file_name) + 1);
+    if (copy == NULL) {
+        free(fn_copy);
+        return TID_ERROR;
+    }
     memcpy(copy, file_name, strlen(file_name) + 1);
     char *executable = strtok_r(copy, " ", &copy);
 
@@ -128,20 +132,27 @@ static void start_process(void* aux) {
 
         // Setup child data 
         child_data_t *child = malloc(sizeof(child_data_t));
-        *child = (child_data_t) {
-            .pid = t->tid,
-            .elem_modification_lock = {0},
-            .parent_status = UNKNOWN,
-            .exit_code = 0,
-            .has_exited = false,
-            .elem = {0}
-        };
-        lock_init(&child->elem_modification_lock);
-        parent->start_process_result = t->pcb->child_info = child;
+        success = child != NULL;
+        if (success) {
+            *child = (child_data_t) {
+                .pid = t->tid,
+                .elem_modification_lock = {0},
+                .parent_status = UNKNOWN,
+                .exit_code = 0,
+                .has_exited = false,
+                .elem = {0}
+            };
+            lock_init(&child->elem_modification_lock);
+            parent->start_process_result = t->pcb->child_info = child;
 
-        // Continue initializing the PCB as normal
-        t->pcb->main_thread = t;
-        strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+            // Continue initializing the PCB as normal
+            t->pcb->main_thread = t;
+            strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+        } else {
+            struct process* pcb_to_free = t->pcb;
+            t->pcb = NULL;
+            free(pcb_to_free);
+        }
     }
 
     /* Initialize interrupt frame and load executable. */
@@ -151,21 +162,16 @@ static void start_process(void* aux) {
         if_.cs = SEL_UCSEG;
         if_.eflags = FLAG_IF | FLAG_MBS;
         success = load(executable, file_name, &if_.eip, &if_.esp);
-    }
-
-    /* Handle failure with succesful PCB malloc. Must free the PCB */
-    if (!success && pcb_success) {
-        child_data_t* child_to_free = t->pcb->child_info;
-        t->pcb->child_info = NULL;
-        free(child_to_free);
 
         // Avoid race where PCB is freed before t->pcb is set to NULL
         // If this happens, then an unfortuantely timed timer interrupt
         // can try to activate the pagedir, but it is now freed memory
-        struct process* pcb_to_free = t->pcb;
-        t->pcb = NULL;
-        free(pcb_to_free->child_info);
-        free(pcb_to_free);
+        if (!success) {
+            struct process* pcb_to_free = t->pcb;
+            t->pcb = NULL;
+            free(pcb_to_free->child_info);
+            free(pcb_to_free);
+        }
     }
 
     /* Clean up. Exit on failure or jump to userspace */
@@ -622,6 +628,10 @@ static bool setup_stack(void **esp, const char *file_name) {
             /* Computation of stack memory requirements */
             int argc = 0, capacity = 1;
             char *token, *save_ptr = malloc(strlen(file_name) + 1);
+            if (save_ptr == NULL) {
+                palloc_free_page(kpage);
+                return false;
+            }
             char *save_ptr_cpy = save_ptr;
 
             /* Make a copy of file_name for tokenization */
@@ -629,7 +639,18 @@ static bool setup_stack(void **esp, const char *file_name) {
 
             /* Keep track of cumulative lengths of tokens to allow copying to stack */
             uint32_t *cumulative_lengths = malloc(sizeof(int)), cumulative_length = 0;
+            if (cumulative_lengths == NULL) {
+                palloc_free_page(kpage);
+                free(save_ptr);
+                return false;
+            }
             char **tokens = malloc(sizeof(char *));
+            if (tokens == NULL) {
+                palloc_free_page(kpage);
+                free(save_ptr);
+                free(cumulative_lengths);
+                return false;
+            }
 
             /* Iterate through tokens using strtok_r */
             while ((token = strtok_r(save_ptr, " ", &save_ptr))) {
