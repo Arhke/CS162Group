@@ -9,7 +9,7 @@
 // These defines will be used in Project 2: Multithreading
 #define MAX_STACK_PAGES (1 << 11)
 #define MAX_THREADS 127
-#define MAX_FD_NUM 128
+#define MAX_FD_NUM 32 /* Max number of active file descriptors */
 
 /* PIDs and TIDs are the same type. PID should be
    the TID of the main thread of the process */
@@ -26,41 +26,38 @@ typedef void (*stub_fun)(pthread_fun, void*);
    of the process, which is `special`. */
 
 
-#define PARENT_FREE 2   /* Bit mask for if parent needs to free */
 enum {
-    NULL_STATUS,        /* Offset for some bit magic */
-    EXITED,             /* Parent has exited */
     UNKNOWN,            /* Parent has neither exited nor waited */
-    WAITING             /* Parent is actively waiting */
+    WAITING,            /* Parent is actively waiting */
+    EXITED              /* Parent has exited */
 };
 
 typedef struct child_data {
-    pid_t pid;                          /* PID of child process */
-    struct lock elem_modification_lock; /* Synchronization of concurrent read/writes to child_data */
-    int parent_status;                  /* Status of the parent described by the enums above */
-    int exit_code;                      /* Exit code of child process */
-    bool has_exited;                    /* Whether child has exited */
+    pid_t pid;                                  /* PID of child process */
+    struct lock elem_modification_lock;         /* Synchronization of concurrent read/writes to child_data */
+    int parent_status;                          /* Status of the parent described by the enums above */
+    int exit_code;                              /* Exit code of child process */
+    bool has_exited;                            /* Whether child has exited */
     struct list_elem elem;
 } child_data_t;
 
 struct process {
     /* Owned by process.c. */
-    uint32_t* pagedir;                  /* Page directory. */
-    char process_name[32];              /* Name of the main thread */
-    struct thread* main_thread;         /* Pointer to main thread */
+    uint32_t* pagedir;                          /* Page directory. */
+    char process_name[32];                      /* Name of the main thread */
+    struct thread* main_thread;                 /* Pointer to main thread */
 
+    struct process *parent_process;             /* Pointer to parent process */
+    struct list child_processes;                /* List of struct child_data shared with child processes */
 
-    struct process *parent_process;     /* Pointer to parent process */
-    struct list child_processes;        /* List of struct child_data representing child processes */
+    struct child_data *start_process_result;    /* The child_data of the result of process_execute, NULL if start_process fails*/
+    struct semaphore start_process_sema;        /* Semaphore that ensures child PCB is initialized before parent finishes exec */
+    struct semaphore wait_sema;                 /* Semaphore that ensures child finishes executing before parent finishes wait */
 
-    struct semaphore pcb_init_sema;     /* Semaphore that ensures child PCB is initialized before parent finishes exec */
-    struct semaphore wait_sema;         /* Semaphore that ensures child finishes executing before parent finishes wait */
+    child_data_t *child_info;                   /* Shared data struct with parent. See child_data struct above */
 
-    child_data_t *child_info;
-
-    struct file* fdt[MAX_FD_NUM];
-
-    struct file* executable;
+    struct file* fdt[MAX_FD_NUM];               /* File descriptor table for this process */
+    struct file* executable;                    /* Executable that is being run by this process */
 };
 
 

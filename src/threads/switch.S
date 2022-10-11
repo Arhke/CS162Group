@@ -34,7 +34,6 @@ switch_threads:
 	pushl %esi
 	pushl %edi
 
-	finit
 
 	# Get offsetof (struct thread, stack).
 .globl thread_stack_ofs
