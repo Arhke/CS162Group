@@ -181,7 +181,7 @@ static void start_process(void* aux) {
         arguments on the stack in the form of a `struct intr_frame',
         we just point the stack pointer (%esp) to our stack frame
         and jump to it. */
-    asm volatile("movl %0, %%esp; finit; fsave 48(%%esp); jmp intr_exit" : : "g"(&if_) : "memory");
+    asm volatile("movl %0, %%esp; fsave 48(%%esp); jmp intr_exit" : : "g"(&if_) : "memory");
     NOT_REACHED();
 }
 
