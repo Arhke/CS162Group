@@ -25,7 +25,7 @@
 
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
-static bool load(const char* file_name, void (**eip)(void), void** esp);
+static bool load(const char *executable, const char *file_name, void (**eip)(void), void** esp);
 bool setup_thread(void (**eip)(void), void** esp);
 
 
@@ -46,14 +46,12 @@ bool setup_pcb(void) {
     if (success) {
         /* Initialize parent-child data in process */
         list_init(&(p->child_processes));
-        sema_init(&(p->pcb_init_sema), 0);
+        sema_init(&(p->start_process_sema), 0);
         sema_init(&(p->wait_sema), 0);
 
         /* Initialize fdt */
         fdt_init(p);
     }
-
-
     return success;
 }
 
@@ -79,47 +77,47 @@ pid_t process_execute(const char* file_name) {
 
     /* Make a copy of FILE_NAME.
         Otherwise there's a race between the caller and load(). */
-    fn_copy = palloc_get_page(0);
+    fn_copy = malloc((strlen(file_name) + 1) * sizeof(char));
     if (fn_copy == NULL)
         return TID_ERROR;
-    strlcpy(fn_copy, file_name, PGSIZE);
+    strlcpy(fn_copy, file_name, strlen(file_name) + 1);
 
     /* Create a new thread to execute FILE_NAME. */
-
     /* Obtain the executable name */
     char *copy = malloc(strlen(file_name) + 1);
+    if (copy == NULL) {
+        free(fn_copy);
+        return TID_ERROR;
+    }
     memcpy(copy, file_name, strlen(file_name) + 1);
     char *executable = strtok_r(copy, " ", &copy);
 
-    if (filesys_open(executable) == NULL) {
+    void *aux[3] = {parent, executable, fn_copy};
+    pid_t tid = thread_create(executable, PRI_DEFAULT, start_process, (void *) aux);
+
+    if (tid == TID_ERROR) {
         free(executable);
-        return TID_ERROR;
-    }
-
-    void **aux = malloc(2 * sizeof(void *));
-    aux[0] = (void *) fn_copy;
-    aux[1] = (void *) parent;
-
-    t = thread_create(executable, PRI_DEFAULT, start_process, (void *) aux);
-
-    if (t->tid == TID_ERROR) {
-        palloc_free_page(fn_copy);
+        free(fn_copy);
     } else {
-        /* Wait for child to finish initializing PCB */
-        sema_down(&parent->pcb_init_sema);
-
-        /* Add child data to list of child processes. It is ok if child has
-            already exited because parent still has pointer to valid data */
-        list_push_back(&parent->child_processes, &t->pcb->child_info->elem);
+        /* Wait for child to finish initializing PCB*/
+        sema_down(&parent->start_process_sema);
+        if (parent->start_process_result) {
+            /* Add child data to list of child processes. It is ok if child has
+                already exited because parent still has pointer to valid data */
+            list_push_back(&parent->child_processes, &parent->start_process_result->elem);
+        } else {
+            return TID_ERROR;
+        }
     }
-    return t->tid;
+    return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void start_process(void* aux) {
-    char* file_name = (char*) ((void **) aux)[0];
-    struct process *parent = (struct process *) ((void **) aux)[1];
+    struct process *parent = (struct process *) ((void **) aux)[0];
+    char *executable = (char *) ((void **) aux)[1];
+    char *file_name = (char*) ((void **) aux)[2];
     struct thread* t = thread_current();
 
 
@@ -134,23 +132,27 @@ static void start_process(void* aux) {
 
         // Setup child data 
         child_data_t *child = malloc(sizeof(child_data_t));
-        *child = (child_data_t) {
-            .pid = t->tid,
-            .elem_modification_lock = {0},
-            .parent_status = UNKNOWN,
-            .exit_code = 0,
-            .has_exited = false,
-            .elem = {0}
-        };
-        lock_init(&child->elem_modification_lock);
-        t->pcb->child_info = child;
+        success = child != NULL;
+        if (success) {
+            *child = (child_data_t) {
+                .pid = t->tid,
+                .elem_modification_lock = {0},
+                .parent_status = UNKNOWN,
+                .exit_code = 0,
+                .has_exited = false,
+                .elem = {0}
+            };
+            lock_init(&child->elem_modification_lock);
+            parent->start_process_result = t->pcb->child_info = child;
 
-        // Continue initializing the PCB as normal
-        t->pcb->main_thread = t;
-        strlcpy(t->pcb->process_name, t->name, sizeof t->name);
-
-        // Release parent to continue running now that PCB is setup
-        sema_up(&parent->pcb_init_sema);
+            // Continue initializing the PCB as normal
+            t->pcb->main_thread = t;
+            strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+        } else {
+            struct process* pcb_to_free = t->pcb;
+            t->pcb = NULL;
+            free(pcb_to_free);
+        }
     }
 
     /* Initialize interrupt frame and load executable. */
@@ -159,30 +161,28 @@ static void start_process(void* aux) {
         if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
         if_.cs = SEL_UCSEG;
         if_.eflags = FLAG_IF | FLAG_MBS;
-        success = load(file_name, &if_.eip, &if_.esp);
-    }
-
-    /* Handle failure with succesful PCB malloc. Must free the PCB */
-    if (!success && pcb_success) {
-        child_data_t* child_to_free = t->pcb->child_info;
-        t->pcb->child_info = NULL;
-        free(child_to_free);
+        success = load(executable, file_name, &if_.eip, &if_.esp);
 
         // Avoid race where PCB is freed before t->pcb is set to NULL
         // If this happens, then an unfortuantely timed timer interrupt
         // can try to activate the pagedir, but it is now freed memory
-        struct process* pcb_to_free = t->pcb;
-        t->pcb = NULL;
-        free(pcb_to_free);
-
-        /* Release parent if PCB cannot be set up */
-        sema_up(&parent->pcb_init_sema);
+        if (!success) {
+            struct process* pcb_to_free = t->pcb;
+            t->pcb = NULL;
+            free(pcb_to_free->child_info);
+            free(pcb_to_free);
+        }
     }
 
     /* Clean up. Exit on failure or jump to userspace */
-    palloc_free_page(file_name);
+    free(executable);
+    free(file_name);
     if (!success) {
+        parent->start_process_result = NULL;
+        sema_up(&parent->start_process_sema);
         thread_exit();
+    } else {
+        sema_up(&parent->start_process_sema);
     }
 
     /* Start the user process by simulating a return from an
@@ -190,13 +190,8 @@ static void start_process(void* aux) {
         threads/intr-stubs.S).  Because intr_exit takes all of its
         arguments on the stack in the form of a `struct intr_frame',
         we just point the stack pointer (%esp) to our stack frame
-        and jump to it. 
-        
-        However, before it jumps to intr_exit, we initialize a new FPU
-        and save it on the stack. This is accomplished by the instructions
-        finit and fsave.
-        */
-    asm volatile("movl %0, %%esp; finit; fsave 48(%%esp); jmp intr_exit" : : "g"(&if_) : "memory");
+        and jump to it. */
+    asm volatile("movl %0, %%esp; fsave 48(%%esp); jmp intr_exit" : : "g"(&if_) : "memory");
     NOT_REACHED();
 }
 
@@ -264,16 +259,22 @@ void process_exit(int exit_code) {
     struct process *parent = cur->parent_process;
     child_data_t *cd = cur->child_info;
 
+    /* Acquire a lock */
     lock_acquire(&cd->elem_modification_lock);
-    if (cd->parent_status & PARENT_FREE) {
+    /* Checks if parent has exited */
+    if (cd->parent_status != EXITED) {
+        /* If parent has not exited, alert that child has exited and update exit code */
         cd->has_exited = true;
         cd->exit_code = exit_code;
+        /* If parent is waiting, release lock and up the semaphore */
         if (cd->parent_status == WAITING) {
             lock_release(&cd->elem_modification_lock);
             sema_up(&parent->wait_sema);
+        /* Else release the lock */
         } else {
             lock_release(&cd->elem_modification_lock);
         }
+    /* If parent has exited, no need for shared data, just free */
     } else {
         free(cd);
     }
@@ -281,13 +282,16 @@ void process_exit(int exit_code) {
     /* Update all children processes that the parent no longer exists */
     struct list_elem *e;
     while (!list_empty(&cur->child_processes)) {
+        /* Must use list_pop because if free, then cannot use list_next on elem */
         e = list_pop_front(&cur->child_processes);
         cd = list_entry(e, child_data_t, elem);
+        /* Acquire the lock */
         lock_acquire(&cd->elem_modification_lock);
+        /* If child has exited, just free */
         if (cd->has_exited) {
-            lock_release(&cd->elem_modification_lock);
             free(cd);
         } else {
+        /* Else, alert child that parent has exited, release the lock */
             cd->parent_status = EXITED;
             lock_release(&cd->elem_modification_lock);
         }
@@ -413,17 +417,13 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
    Stores the executable's entry point into *EIP
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
-bool load(const char* file_name, void (**eip)(void), void** esp) {
+bool load(const char *executable, const char* file_name, void (**eip)(void), void** esp) {
     struct thread* t = thread_current();
     struct Elf32_Ehdr ehdr;
     struct file* file = NULL;
     off_t file_ofs;
     bool success = false;
     int i;
-
-    char *file_name_copy = malloc(strlen(file_name) + 1);
-    memcpy(file_name_copy, file_name, strlen(file_name) + 1);
-    char *executable = strtok_r(file_name_copy, " ", &file_name_copy);
 
     /* Allocate and activate page directory. */
     t->pcb->pagedir = pagedir_create();
@@ -438,7 +438,7 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
         goto done;
     }
 
-    /* Deny writes to executable of active process */
+    /* Deny writes to executable of active process and track the executable for this process */
     t->pcb->executable = file;
     file_deny_write(file);
 
@@ -511,7 +511,6 @@ bool load(const char* file_name, void (**eip)(void), void** esp) {
 
 done:
     /* We arrive here whether the load is successful or not. */
-    // file_close(file);
     return success;
 }
 
@@ -629,13 +628,29 @@ static bool setup_stack(void **esp, const char *file_name) {
             /* Computation of stack memory requirements */
             int argc = 0, capacity = 1;
             char *token, *save_ptr = malloc(strlen(file_name) + 1);
+            if (save_ptr == NULL) {
+                palloc_free_page(kpage);
+                return false;
+            }
+            char *save_ptr_cpy = save_ptr;
 
             /* Make a copy of file_name for tokenization */
             strlcpy(save_ptr, file_name, strlen(file_name) + 1);
 
             /* Keep track of cumulative lengths of tokens to allow copying to stack */
             uint32_t *cumulative_lengths = malloc(sizeof(int)), cumulative_length = 0;
+            if (cumulative_lengths == NULL) {
+                palloc_free_page(kpage);
+                free(save_ptr);
+                return false;
+            }
             char **tokens = malloc(sizeof(char *));
+            if (tokens == NULL) {
+                palloc_free_page(kpage);
+                free(save_ptr);
+                free(cumulative_lengths);
+                return false;
+            }
 
             /* Iterate through tokens using strtok_r */
             while ((token = strtok_r(save_ptr, " ", &save_ptr))) {
@@ -684,6 +699,7 @@ static bool setup_stack(void **esp, const char *file_name) {
             stack_ptr[argc] = NULL;
 
             /* Free memory used for computations */
+            free(save_ptr_cpy);
             free(cumulative_lengths);
             free(tokens);
         } else {
