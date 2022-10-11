@@ -9,7 +9,7 @@
 // These defines will be used in Project 2: Multithreading
 #define MAX_STACK_PAGES (1 << 11)
 #define MAX_THREADS 127
-#define MAX_FD_NUM 128
+#define MAX_FD_NUM 32
 
 /* PIDs and TIDs are the same type. PID should be
    the TID of the main thread of the process */
@@ -43,11 +43,11 @@ struct process {
     struct process *parent_process;     /* Pointer to parent process */
     struct list child_processes;        /* List of struct child_data representing child processes */
 
-    struct child_data *start_process_result;
-    struct semaphore pcb_init_sema;     /* Semaphore that ensures child PCB is initialized before parent finishes exec */
+    struct child_data *start_process_result;    /* The child_data of the result of process_execute, NULL if start_process fails*/
+    struct semaphore start_process_sema;        /* Semaphore that ensures child PCB is initialized before parent finishes exec */
     struct semaphore wait_sema;         /* Semaphore that ensures child finishes executing before parent finishes wait */
 
-    struct child_data *child_info;      /* Data shared with child */
+    struct child_data *child_info;      /* Data shared with parent */
 
     struct file* fdt[MAX_FD_NUM];
     struct file* executable;

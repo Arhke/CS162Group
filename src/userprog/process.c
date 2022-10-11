@@ -46,7 +46,7 @@ bool setup_pcb(void) {
     if (success) {
         /* Initialize parent-child data in process */
         list_init(&(p->child_processes));
-        sema_init(&(p->pcb_init_sema), 0);
+        sema_init(&(p->start_process_sema), 0);
         sema_init(&(p->wait_sema), 0);
 
         /* Initialize fdt */
@@ -89,14 +89,14 @@ pid_t process_execute(const char* file_name) {
     char *executable = strtok_r(copy, " ", &copy);
 
     void *aux[3] = {parent, executable, fn_copy};
-    t = thread_create(executable, PRI_DEFAULT, start_process, (void *) aux);
+    pid_t tid = thread_create(executable, PRI_DEFAULT, start_process, (void *) aux);
 
-    if (t->tid == TID_ERROR) {
+    if (tid == TID_ERROR) {
         free(executable);
         free(fn_copy);
     } else {
         /* Wait for child to finish initializing PCB*/
-        sema_down(&parent->pcb_init_sema);
+        sema_down(&parent->start_process_sema);
         if (parent->start_process_result) {
             /* Add child data to list of child processes. It is ok if child has
                 already exited because parent still has pointer to valid data */
@@ -105,7 +105,7 @@ pid_t process_execute(const char* file_name) {
             return TID_ERROR;
         }
     }
-    return t->tid;
+    return tid;
 }
 
 /* A thread function that loads a user process and starts it
@@ -169,10 +169,10 @@ static void start_process(void* aux) {
     free(file_name);
     if (!success) {
         parent->start_process_result = NULL;
-        sema_up(&parent->pcb_init_sema);
+        sema_up(&parent->start_process_sema);
         thread_exit();
     } else {
-        sema_up(&parent->pcb_init_sema);
+        sema_up(&parent->start_process_sema);
     }
 
     /* Start the user process by simulating a return from an
