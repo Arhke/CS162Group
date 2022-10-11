@@ -10,7 +10,7 @@ args-dbl-space sc-bad-sp sc-bad-arg sc-boundary sc-boundary-2           \
 sc-boundary-3 halt exit create-normal create-empty create-null          \
 create-bad-ptr create-long create-exists create-bound open-normal       \
 open-missing open-boundary open-empty open-null open-bad-ptr            \
-open-twice open-close close-normal close-twice close-stdin close-stdout            \
+open-twice seek-beyond close-normal close-twice close-stdin close-stdout            \
 close-bad-fd read-normal read-bad-ptr read-boundary read-zero           \
 read-stdout read-bad-fd write-normal write-bad-ptr write-boundary       \
 write-zero write-stdin write-bad-fd exec-once exec-arg exec-bound       \
@@ -71,7 +71,7 @@ tests/userprog/open-empty_SRC = tests/userprog/open-empty.c tests/main.c
 tests/userprog/open-null_SRC = tests/userprog/open-null.c tests/main.c
 tests/userprog/open-bad-ptr_SRC = tests/userprog/open-bad-ptr.c tests/main.c
 tests/userprog/open-twice_SRC = tests/userprog/open-twice.c tests/main.c
-tests/userprog/open-close_SRC = tests/userprog/open-close.c tests/main.c
+tests/userprog/seek-beyond_SRC = tests/userprog/seek-beyond.c tests/main.c
 tests/userprog/close-normal_SRC = tests/userprog/close-normal.c tests/main.c
 tests/userprog/close-twice_SRC = tests/userprog/close-twice.c tests/main.c
 tests/userprog/close-stdin_SRC = tests/userprog/close-stdin.c tests/main.c
@@ -147,7 +147,7 @@ tests/userprog/multi-recurse_ARGS = 15
 tests/userprog/open-normal_PUTFILES += tests/userprog/sample.txt
 tests/userprog/open-boundary_PUTFILES += tests/userprog/sample.txt
 tests/userprog/open-twice_PUTFILES += tests/userprog/sample.txt
-tests/userprog/open-close_PUTFILES += tests/userprog/sample.txt
+tests/userprog/seek-beyond_PUTFILES += tests/userprog/sample.txt
 tests/userprog/close-normal_PUTFILES += tests/userprog/sample.txt
 tests/userprog/close-twice_PUTFILES += tests/userprog/sample.txt
 tests/userprog/read-normal_PUTFILES += tests/userprog/sample.txt
