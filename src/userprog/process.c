@@ -184,13 +184,8 @@ static void start_process(void* aux) {
         threads/intr-stubs.S).  Because intr_exit takes all of its
         arguments on the stack in the form of a `struct intr_frame',
         we just point the stack pointer (%esp) to our stack frame
-        and jump to it. 
-        
-        However, before it jumps to intr_exit, we initialize a new FPU
-        and save it on the stack. This is accomplished by the instructions
-        finit and fsave.
-        */
-    asm volatile("movl %0, %%esp; finit; fsave 48(%%esp); jmp intr_exit" : : "g"(&if_) : "memory");
+        and jump to it. */
+    asm volatile("movl %0, %%esp; fsave 48(%%esp); jmp intr_exit" : : "g"(&if_) : "memory");
     NOT_REACHED();
 }
 
