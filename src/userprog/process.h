@@ -25,7 +25,6 @@ typedef void (*stub_fun)(pthread_fun, void*);
    to the PCB, and the PCB will have a pointer to the main thread
    of the process, which is `special`. */
 
-
 enum {
     UNKNOWN,            /* Parent has neither exited nor waited */
     WAITING,            /* Parent is actively waiting */

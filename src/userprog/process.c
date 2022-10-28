@@ -672,7 +672,7 @@ static bool setup_stack(void **esp, const char *file_name) {
             memreq += (padding + 4);
 
             /* Lower stack pointer */
-            *esp = PHYS_BASE - memreq;
+            *esp = (char *) PHYS_BASE - memreq;
 
 
             /* Loading arguments onto the stack */
