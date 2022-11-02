@@ -89,7 +89,6 @@ struct thread_data {
     size_t stack_slot;          /* Number of pages under PHYS_BASE that this thread's stack occupies. */
     tid_t tid;                  /* TID of corresponding thread. */
     struct semaphore join_sema; /* Semaphore that allows other threads to join. */
-    int exit_code;              /* Exit code of corresponding thread. */
     bool has_exited;            /* Whether corresponding thread has exited or not. */
     struct list_elem elem;      /* List element for struct process list of thread_data. */
 };

@@ -750,7 +750,7 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
     bool success;
     if (kpage != NULL) {
         struct process *pcb = thread_current()->pcb;
-        int open_stack_slot = 0;
+        int open_stack_slot = 1;
     
         lock_acquire(&pcb->thread_data_lock);
         struct list_elem *e;
@@ -850,7 +850,34 @@ static void start_pthread(void* setup_thread_args) {
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-tid_t pthread_join(tid_t tid UNUSED) { return -1; }
+
+tid_t pthread_join(tid_t tid) {
+    struct thread *tc = thread_current();
+    if (tc->tid != tid) {
+        struct process *p = tc->pcb;
+
+        struct thread_data *td;
+        struct list_elem *e;
+        lock_acquire(&p->thread_data_lock);
+            for (e = list_begin(&p->thread_data); e != list_end(&p->thread_data); e = list_next(e)) {
+                td = list_entry(e, struct thread_data, elem);
+                if (td->tid == tid) {
+                    list_remove(e);
+                    lock_release(&p->thread_data_lock);
+                    
+                    tc->held_data = td;
+                    sema_down(&td->join_sema);
+                    tc->held_data = NULL;
+
+                    free(td);
+                    return tid;
+                }
+            }
+        lock_release(&p->thread_data_lock);
+        return TID_ERROR;
+    }
+    return TID_ERROR;
+}
 
 /* Free the current thread's resources. Most resources will
    be freed on thread_exit(), so all we have to do is deallocate the
@@ -861,7 +888,13 @@ tid_t pthread_join(tid_t tid UNUSED) { return -1; }
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-void pthread_exit(void) {}
+void pthread_exit(void) {
+    struct thread *tc = thread_current();
+    tc->data->has_exited = true;
+    sema_up(&tc->data->join_sema);
+
+    thread_exit();
+}
 
 /* Only to be used when the main thread explicitly calls pthread_exit.
    The main thread should wait on all threads in the process to
@@ -871,4 +904,32 @@ void pthread_exit(void) {}
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-void pthread_exit_main(void) {}
+void pthread_exit_main(void) {
+    struct thread *tc = thread_current();
+    tc->data->has_exited = true;
+    sema_up(&tc->data->join_sema);
+
+    struct process *p = tc->pcb;
+
+    struct thread_data *td;
+    struct list_elem *e;
+    lock_acquire(&p->thread_data_lock);
+        while (!list_empty(&p->thread_data)) {
+            e = list_pop_back(&p->thread_data);
+            lock_release(&p->thread_data_lock);
+
+            td = list_entry(e, struct thread_data, elem);
+
+            if (td->tid != tc->tid) {
+                tc->held_data = td;
+                sema_down(&td->join_sema);
+                tc->held_data = NULL;
+            }
+
+            free(td);
+            lock_acquire(&p->thread_data_lock);
+        }
+    lock_release(&p->thread_data_lock);
+
+    thread_exit();
+}
