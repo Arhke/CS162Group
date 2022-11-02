@@ -1,10 +1,12 @@
 #include "heap.h"
 #include "../debug.h"
 
+#define max(a, b) ((a > b) ? a : b)
+
 
 /* Initializes HEAP as empty heap. */
 void heap_init(struct heap *heap) {
-    *heap = (struct heap) {calloc(1, sizeof(struct heap_elem *)), 0, 1};
+    *heap = (struct heap) {NULL, 0, 0};
 }
 
 /* Returns the maximum element in the heap without removing. */
@@ -64,8 +66,8 @@ void heap_sink(struct heap *heap, int index) {
 
 /* Inserts an element into the heap. */
 void heap_insert(struct heap *heap, struct heap_elem *elem) {
-    if (heap->size + 1 == heap->capacity) {
-        heap->capacity <<= 1;
+    if (heap->size + 1 > heap->capacity) {
+        heap->capacity = max(1, heap->capacity << 1);
         heap->elems = realloc(heap->elems, heap->capacity * sizeof(struct heap_elem *));
     }
     heap->size++;
@@ -143,12 +145,6 @@ inline size_t heap_size(struct heap *heap) {
 inline bool heap_empty(struct heap *heap) {
     return heap->size == 0;
 }
-
-/* Destroys the heap, freeing allocated space. */
-inline void heap_destroy(struct heap *heap) {
-    free(heap->elems);
-}
-
 
 
 
