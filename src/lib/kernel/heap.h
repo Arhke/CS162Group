@@ -43,4 +43,7 @@ void heap_updateKey(struct heap *, struct heap_elem *, int);
 size_t heap_size(struct heap *);
 bool heap_empty(struct heap *);
 
+/* Destroy heap. */
+void heap_destroy(struct heap *);
+
 #endif /* lib/kernel/heap.h */

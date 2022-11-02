@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "threads/synch.h"
 #include "threads/fixed-point.h"
+#include "lib/kernel/heap.h"
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -82,17 +83,43 @@ typedef int tid_t;
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
 // #define USERPROG
+
+
+struct thread_data {
+    size_t stack_slot;          /* Number of pages under PHYS_BASE that this thread's stack occupies. */
+    tid_t tid;                  /* TID of corresponding thread. */
+    struct semaphore join_sema; /* Semaphore that allows other threads to join. */
+    int exit_code;              /* Exit code of corresponding thread. */
+    bool has_exited;            /* Whether corresponding thread has exited or not. */
+    struct list_elem elem;      /* List element for struct process list of thread_data. */
+};
+
+
 struct thread {
     /* Owned by thread.c. */
-    tid_t tid;                 /* Thread identifier. */
-    enum thread_status status; /* Thread state. */
-    char name[32];             /* Name (for debugging purposes). */
-    uint8_t* stack;            /* Saved stack pointer. */
-    int priority;              /* Priority. */
-    struct list_elem allelem;  /* List element for all threads list. */
+    tid_t tid;                  /* Thread identifier. */
+    enum thread_status status;  /* Thread state. */
+    char name[32];              /* Name (for debugging purposes). */
+    uint8_t* stack;             /* Saved stack pointer. */
+    struct list_elem allelem;   /* List element for all threads list. */
+
+
+    struct heap held_locks;     /* List of held locks */
+    int priority;               /* Priority. */
+    int effective_priority;     /* Effective priority. */
+
+    struct heap *current_heap;  /* Pointer to the current heap that the thread is stored in. */
+    struct heap_elem heap_elem; /* Elem that allows the thread to be stored in a heap. */
+
+
+    struct thread_data *data;       /* Data corresponding to this thread. */
+    struct thread_data *held_data;  /* Data that this thread may potentially be holding and will need to free on forced exit. */
+
+    struct list_elem process_elem;  /* List element for active threads list in struct process. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem; /* List element. */
+    
 
 #ifdef USERPROG
     /* Owned by process.c. */
@@ -102,6 +129,9 @@ struct thread {
     /* Owned by thread.c. */
     unsigned magic; /* Detects stack overflow. */
 };
+
+
+
 
 /* Types of scheduler that the user can request the kernel
  * use to schedule threads at runtime. */

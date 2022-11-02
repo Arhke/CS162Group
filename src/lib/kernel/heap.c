@@ -1,6 +1,7 @@
 #include "heap.h"
 #include "../debug.h"
 
+
 /* Initializes HEAP as empty heap. */
 void heap_init(struct heap *heap) {
     *heap = (struct heap) {calloc(1, sizeof(struct heap_elem *)), 0, 1};
@@ -141,6 +142,11 @@ inline size_t heap_size(struct heap *heap) {
 /* Returns if heap is empty or not. */
 inline bool heap_empty(struct heap *heap) {
     return heap->size == 0;
+}
+
+/* Destroys the heap, freeing allocated space. */
+inline void heap_destroy(struct heap *heap) {
+    free(heap->elems);
 }
 
 

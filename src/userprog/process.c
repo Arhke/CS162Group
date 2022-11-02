@@ -26,7 +26,7 @@
 static thread_func start_process NO_RETURN;
 static thread_func start_pthread NO_RETURN;
 static bool load(const char *executable, const char *file_name, void (**eip)(void), void** esp);
-bool setup_thread(void (**eip)(void), void** esp);
+bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), void** esp);
 
 
 /* Helper function that sets up PCB that can also be called by normal processes */
@@ -741,7 +741,61 @@ pid_t get_pid(struct process* p) { return (pid_t)p->main_thread->tid; }
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. You may find it necessary to change the
    function signature. */
-bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; }
+bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), void** esp) {
+    void *kpage = palloc_get_page(PAL_USER | PAL_ZERO);
+    bool success;
+    if (kpage != NULL) {
+        struct process *pcb = thread_current()->pcb;
+        int open_stack_slot = 0;
+    
+        lock_acquire(&pcb->thread_data_lock);
+        struct list_elem *e;
+        for (e = list_begin(&pcb->thread_data); e != list_end(&pcb->thread_data); e = list_next(e)) {
+            /* Iterate through thread_data until find an open stack slot */
+            struct thread_data *d = list_entry(e, struct thread_data, elem);
+            if (d->has_exited) {
+                if (d->stack_slot >= open_stack_slot) {
+                    break;
+                }
+            } else {
+                if (d->stack_slot == open_stack_slot) {
+                    open_stack_slot++;
+                } else {
+                    break;
+                }
+            }
+        }
+
+        success = install_page(PHYS_BASE - ((open_stack_slot + 1) << PGBITS), kpage, true);
+        if (success) {
+            struct thread_data *td = malloc(sizeof(struct thread_data));
+
+            td->stack_slot = open_stack_slot;
+            td->tid = thread_current()->tid;
+            sema_init(&td->join_sema, 0);
+            td->has_exited = false;
+
+            uint32_t memreq = sizeof(tf) + sizeof(arg);
+            uint32_t padding = -memreq & 0xF;
+            memreq += (padding + 4);
+            
+            *esp = PHYS_BASE - (open_stack_slot << PGBITS) - memreq;
+            void **stack_ptr = (void **) *esp;
+        
+            *stack_ptr = NULL;
+            *(stack_ptr + 1) = tf;
+            *(stack_ptr + 2) = arg;
+        
+            *eip = sf;
+
+            list_insert(e, &td->elem);
+        } else {
+            palloc_free_page(kpage);
+        }
+        lock_release(&pcb->thread_data_lock);
+    }
+    return success;
+}
 
 /* Starts a new thread with a new user stack running SF, which takes
    TF and ARG as arguments on its user stack. This new thread may be
@@ -752,7 +806,14 @@ bool setup_thread(void (**eip)(void) UNUSED, void** esp UNUSED) { return false; 
    This function will be implemented in Project 2: Multithreading and
    should be similar to process_execute (). For now, it does nothing.
    */
-tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSED) { return -1; }
+tid_t pthread_execute(stub_fun sf, pthread_fun tf, void* arg) {
+    struct thread *tc = thread_current();
+
+    void *start_pthread_args[3] = {sf, tf, arg};
+    tid_t tid = thread_create(tc->name, PRI_DEFAULT, start_pthread, start_pthread_args);    
+
+    return tid;
+}
 
 /* A thread function that creates a new user thread and starts it
    running. Responsible for adding itself to the list of threads in
@@ -760,7 +821,24 @@ tid_t pthread_execute(stub_fun sf UNUSED, pthread_fun tf UNUSED, void* arg UNUSE
 
    This function will be implemented in Project 2: Multithreading and
    should be similar to start_process (). For now, it does nothing. */
-static void start_pthread(void* exec_ UNUSED) {}
+static void start_pthread(void* setup_thread_args) {
+
+    stub_fun sf = (stub_fun) ((void **) setup_thread_args)[0];
+    pthread_fun tf = (pthread_fun) ((void **) setup_thread_args)[1];
+    void *arg = ((void **) setup_thread_args)[2];
+                          
+    struct intr_frame if_;
+    memset(&if_, 0, sizeof if_);
+    if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
+    if_.cs = SEL_UCSEG;
+    if_.eflags = FLAG_IF | FLAG_MBS;
+    bool success = setup_thread(sf, tf, arg, &if_.eip, &if_.esp);
+    if (!success) {
+        thread_exit();
+    }
+    asm volatile("movl %0, %%esp; fsave 48(%%esp); jmp intr_exit" : : "g"(&if_) : "memory");
+    NOT_REACHED();
+}
 
 /* Waits for thread with TID to die, if that thread was spawned
    in the same process and has not been waited on yet. Returns TID on

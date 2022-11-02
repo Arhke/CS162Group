@@ -57,6 +57,10 @@ struct process {
 
     struct file* fdt[MAX_FD_NUM];               /* File descriptor table for this process */
     struct file* executable;                    /* Executable that is being run by this process */
+
+
+    struct list thread_data;
+    struct lock thread_data_lock;
 };
 
 

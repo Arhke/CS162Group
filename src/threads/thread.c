@@ -23,6 +23,7 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list fifo_ready_list;
+static struct heap prio_ready_heap;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -108,6 +109,7 @@ void thread_init(void) {
 
     lock_init(&tid_lock);
     list_init(&fifo_ready_list);
+    heap_init(&prio_ready_heap);
     list_init(&all_list);
 
     /* Set up a thread structure for the running thread. */
@@ -457,9 +459,15 @@ static void init_thread(struct thread* t, const char* name, int priority) {
     t->status = THREAD_BLOCKED;
     strlcpy(t->name, name, sizeof t->name);
     t->stack = (uint8_t*)t + PGSIZE;
-    t->priority = priority;
     t->pcb = NULL;
     t->magic = THREAD_MAGIC;
+
+    t->priority = priority;
+    t->effective_priority = priority;
+
+    /* Initialize the heap of held locks and set the future heap this thread will be placed on. */
+    heap_init(&t->held_locks);
+    t->current_heap = &prio_ready_heap;
 
     old_level = intr_disable();
     list_push_back(&all_list, &t->allelem);
