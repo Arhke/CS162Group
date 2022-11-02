@@ -4,9 +4,9 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <heap.h>
 #include "threads/synch.h"
 #include "threads/fixed-point.h"
-#include "lib/kernel/heap.h"
 
 /* States in a thread's life cycle. */
 enum thread_status {
