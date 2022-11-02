@@ -287,5 +287,13 @@ static void syscall_handler(struct intr_frame *f) {
             f->eax = sys_sum_to_e(args[1]);
 
             break;
-        }
+        case SYS_PT_CREATE:
+            /* Validate arguments */
+            validate_space(f, args, 4 * sizeof(uint32_t));
+
+            /* Call pthread_execute helper function to create thread. */
+            f->eax = pthread_execute((stub_fun) args[1], (pthread_fun) args[2], (void *) args[3]);
+
+            break;
+    }
 }

@@ -822,7 +822,6 @@ tid_t pthread_execute(stub_fun sf, pthread_fun tf, void* arg) {
    This function will be implemented in Project 2: Multithreading and
    should be similar to start_process (). For now, it does nothing. */
 static void start_pthread(void* setup_thread_args) {
-
     stub_fun sf = (stub_fun) ((void **) setup_thread_args)[0];
     pthread_fun tf = (pthread_fun) ((void **) setup_thread_args)[1];
     void *arg = ((void **) setup_thread_args)[2];
