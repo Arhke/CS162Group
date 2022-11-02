@@ -295,5 +295,22 @@ static void syscall_handler(struct intr_frame *f) {
             f->eax = pthread_execute((stub_fun) args[1], (pthread_fun) args[2], (void *) args[3]);
 
             break;
+        case SYS_PT_EXIT:
+            /* Call pthread_exit or pthread_exit_main depending on thread. */
+            if (thread_current() ==  pcb->main_thread) {
+                pthread_exit_main();
+            } else {
+                pthread_exit();
+            }
+
+            break;
+        case SYS_PT_JOIN:
+            /* Validate arguments */
+            validate_space(f, args, 2 * sizeof(uint32_t));
+
+            /* Call pthread_join on the input TID. */
+            f->eax = pthread_join((tid_t) args[1]);
+
+            break;
     }
 }
