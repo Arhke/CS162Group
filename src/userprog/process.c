@@ -51,6 +51,10 @@ bool setup_pcb(void) {
 
         /* Initialize fdt */
         fdt_init(p);
+
+        /* Initialize thread data elements. */
+        list_init(&(p->thread_data));
+        lock_init(&(p->thread_data_lock));
     }
     return success;
 }
