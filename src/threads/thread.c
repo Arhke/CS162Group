@@ -25,6 +25,9 @@
 static struct list fifo_ready_list;
 static struct heap prio_ready_heap;
 
+/* Global ordered list of sleeping threads used by timer_sleep. */
+struct list sleep_queue;
+
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
@@ -111,6 +114,7 @@ void thread_init(void) {
     list_init(&fifo_ready_list);
     heap_init(&prio_ready_heap);
     list_init(&all_list);
+    list_init(&sleep_queue);
 
     /* Set up a thread structure for the running thread. */
     initial_thread = running_thread();
@@ -602,3 +606,10 @@ static tid_t allocate_tid(void) {
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof(struct thread, stack);
+
+/* Less function for ordering the sleep queue. */
+bool sleep_less(const struct list_elem* a_, const struct list_elem* b_, void* aux UNUSED) {
+  struct thread* thread_a = list_entry(a_, struct thread, elem);
+  struct thread* thread_b = list_entry(b_, struct thread, elem);
+  return thread_a->wake_time < thread_b->wake_time;
+}
