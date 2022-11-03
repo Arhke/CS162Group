@@ -20,6 +20,8 @@
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
 
+extern struct list sleep_queue;
+
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
@@ -73,14 +75,17 @@ int64_t timer_ticks(void) {
    should be a value once returned by timer_ticks(). */
 int64_t timer_elapsed(int64_t then) { return timer_ticks() - then; }
 
-/* Sleeps for approximately TICKS timer ticks.  Interrupts must
+/* Sleeps for approximately SLEEP_TICKS timer ticks.  Interrupts must
    be turned on. */
-void timer_sleep(int64_t ticks) {
-  int64_t start = timer_ticks();
+void timer_sleep(int64_t sleep_ticks) {
+  enum intr_level old_level = intr_disable();
 
-  ASSERT(intr_get_level() == INTR_ON);
-  while (timer_elapsed(start) < ticks)
-    thread_yield();
+  struct thread* t = thread_current();
+  t->wake_time = ticks + sleep_ticks;
+  list_insert_ordered(&sleep_queue, &t->sleep_elem, sleep_less, NULL);
+
+  thread_block();
+  intr_set_level(old_level);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -129,6 +134,26 @@ void timer_print_stats(void) { printf("Timer: %" PRId64 " ticks\n", timer_ticks(
 static void timer_interrupt(struct intr_frame* args UNUSED) {
   ticks++;
   thread_tick();
+
+  /* Remove threads from sleep queue if necessary.
+   * Yield on return if any higher priority threads wake up.
+   */
+  struct thread* cur_thread = thread_current();
+  struct thread* t;
+  bool yield = false;
+  while(1) {
+    t = list_entry(list_front(&sleep_queue), struct thread, elem);
+    if (t->wake_time <= ticks) {
+      list_pop_front(&sleep_queue);
+      thread_unblock(t);
+      if (t->effective_priority > cur_thread->effective_priority)
+        yield = true;
+    } else {
+      break;
+    }
+  }
+  if (yield)
+    intr_yield_on_return();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

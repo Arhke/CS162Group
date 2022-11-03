@@ -102,6 +102,8 @@ struct thread {
     uint8_t* stack;             /* Saved stack pointer. */
     struct list_elem allelem;   /* List element for all threads list. */
 
+    int64_t wake_time;           /* Absolute time in ticks at which this thread should wake up if sleeping. */
+    struct list_elem sleep_elem; /* List element for sleeping threads. */
 
     struct heap held_locks;     /* List of held locks */
     int priority;               /* Priority. */
@@ -181,5 +183,7 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
+
+bool sleep_less(const struct list_elem* a_, const struct list_elem* b_, void* aux UNUSED);
 
 #endif /* threads/thread.h */
