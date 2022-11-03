@@ -141,16 +141,11 @@ static void timer_interrupt(struct intr_frame* args UNUSED) {
   struct thread* cur_thread = thread_current();
   struct thread* t;
   bool yield = false;
-  while(!list_empty(&sleep_queue)) {
-    t = list_entry(list_front(&sleep_queue), struct thread, elem);
-    if (t->wake_time <= ticks) {
-      list_pop_front(&sleep_queue);
-      thread_unblock(t);
-      if (t->effective_priority > cur_thread->effective_priority)
-        yield = true;
-    } else {
-      break;
-    }
+  while(!list_empty(&sleep_queue) && list_entry(list_front(&sleep_queue), struct thread, sleep_elem)->wake_time <= ticks) {
+    t = list_entry(list_pop_front(&sleep_queue), struct thread, sleep_elem);
+    thread_unblock(t);
+    if (t->effective_priority > cur_thread->effective_priority)
+      yield = true;
   }
   if (yield)
     intr_yield_on_return();
