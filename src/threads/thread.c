@@ -450,8 +450,7 @@ struct thread* running_thread(void) {
 /* Returns true if T appears to point to a valid thread. */
 static bool is_thread(struct thread* t) { return t != NULL && t->magic == THREAD_MAGIC; }
 
-/* Does basic initialization of T as a blocked thread named
-   NAME. */
+/* Does basic initialization of T as a blocked thread named NAME. */
 static void init_thread(struct thread* t, const char* name, int priority) {
     enum intr_level old_level;
 
@@ -470,6 +469,8 @@ static void init_thread(struct thread* t, const char* name, int priority) {
     t->effective_priority = priority;
 
     /* Initialize the heap of held locks and set the future heap this thread will be placed on. */
+    sema_init(&t->start_pthread_sema, 0);
+
     heap_init(&t->held_locks);
     t->current_heap = &prio_ready_heap;
 

@@ -629,7 +629,17 @@ static bool setup_stack(void **esp, const char *file_name) {
     if (kpage != NULL) {
         success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
         if (success) {
-            /* Computation of stack memory requirements */
+            /* Allocate new thread_data for the main thread and add it to the list. */
+            struct thread_data *td = malloc(sizeof(struct thread_data));
+
+            thread_current()->data = td;
+            td->stack_slot = 0;
+            td->tid = thread_current()->tid;
+            sema_init(&td->join_sema, 0);
+            td->has_exited = false;
+            list_push_front(&thread_current()->pcb->thread_data, &td->elem);
+
+            /* Computation of stack memory requirements. */
             int argc = 0, capacity = 1;
             char *token, *save_ptr = malloc(strlen(file_name) + 1);
             if (save_ptr == NULL) {
@@ -638,10 +648,10 @@ static bool setup_stack(void **esp, const char *file_name) {
             }
             char *save_ptr_cpy = save_ptr;
 
-            /* Make a copy of file_name for tokenization */
+            /* Make a copy of file_name for tokenization. */
             strlcpy(save_ptr, file_name, strlen(file_name) + 1);
 
-            /* Keep track of cumulative lengths of tokens to allow copying to stack */
+            /* Keep track of cumulative lengths of tokens to allow copying to stack. */
             uint32_t *cumulative_lengths = malloc(sizeof(int)), cumulative_length = 0;
             if (cumulative_lengths == NULL) {
                 palloc_free_page(kpage);
@@ -656,7 +666,7 @@ static bool setup_stack(void **esp, const char *file_name) {
                 return false;
             }
 
-            /* Iterate through tokens using strtok_r */
+            /* Iterate through tokens using strtok_r. */
             while ((token = strtok_r(save_ptr, " ", &save_ptr))) {
                 if (argc + 1 > capacity) {
                     capacity <<= 1;
@@ -670,22 +680,22 @@ static bool setup_stack(void **esp, const char *file_name) {
                 argc++;
             }
 
-            /* Add space for arg pointers, argc, argv, padding, and return address */
+            /* Add space for arg pointers, argc, argv, padding, and return address. */
             uint32_t memreq = sizeof(int) + sizeof(char **) + (argc + 1) * sizeof(char *) + cumulative_length;
             uint32_t padding = -memreq & 0xF;
             memreq += (padding + 4);
 
-            /* Lower stack pointer */
+            /* Lower stack pointer. */
             *esp = (char *) PHYS_BASE - memreq;
 
 
-            /* Loading arguments onto the stack */
+            /* Loading arguments onto the stack. */
             void **stack_ptr = (void **) *esp;
 
-            /* Fake return address */
+            /* Fake return address. */
             *(stack_ptr++) = NULL;
 
-            /* argc and argv */
+            /* argc and argv. */
             *stack_ptr = (void *) argc;
             *(stack_ptr + 1) = (void *) (stack_ptr + 2);
             stack_ptr += 2;
@@ -693,7 +703,7 @@ static bool setup_stack(void **esp, const char *file_name) {
             char *args_start = (char *) (stack_ptr) + (argc + 1) * sizeof(char *);
             memset(args_start, 0, padding);
 
-            /* For each argument copy its token onto the appropriate address and load the address onto the stack */
+            /* For each argument copy its token onto the appropriate address and load the address onto the stack. */
             args_start += padding;
             for (int i = 0; i < argc; i++) {
                 char *arg_ptr = args_start + cumulative_lengths[i];
@@ -702,7 +712,7 @@ static bool setup_stack(void **esp, const char *file_name) {
             }
             stack_ptr[argc] = NULL;
 
-            /* Free memory used for computations */
+            /* Free memory used for computations. */
             free(save_ptr_cpy);
             free(cumulative_lengths);
             free(tokens);
@@ -750,7 +760,7 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
     bool success;
     if (kpage != NULL) {
         struct process *pcb = thread_current()->pcb;
-        int open_stack_slot = 1;
+        uint32_t open_stack_slot = 1;
     
         lock_acquire(&pcb->thread_data_lock);
         struct list_elem *e;
@@ -774,10 +784,14 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
         if (success) {
             struct thread_data *td = malloc(sizeof(struct thread_data));
 
+            thread_current()->data = td;
             td->stack_slot = open_stack_slot;
             td->tid = thread_current()->tid;
             sema_init(&td->join_sema, 0);
             td->has_exited = false;
+            list_insert(list_next(e), &td->elem);
+
+            lock_release(&pcb->thread_data_lock);
 
             uint32_t memreq = sizeof(tf) + sizeof(arg);
             uint32_t padding = -memreq & 0xF;
@@ -791,12 +805,10 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
             *(stack_ptr + 2) = arg;
         
             *eip = sf;
-
-            list_insert(e, &td->elem);
         } else {
             palloc_free_page(kpage);
+            lock_release(&pcb->thread_data_lock);
         }
-        lock_release(&pcb->thread_data_lock);
     }
     return success;
 }
@@ -813,10 +825,23 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
 tid_t pthread_execute(stub_fun sf, pthread_fun tf, void* arg) {
     struct thread *tc = thread_current();
 
-    void *start_pthread_args[3] = {sf, tf, arg};
-    tid_t tid = thread_create(tc->name, PRI_DEFAULT, start_pthread, start_pthread_args);    
+    void **start_pthread_args = malloc(4 * sizeof(void *));
+    start_pthread_args[0] = sf;
+    start_pthread_args[1] = tf;
+    start_pthread_args[2] = arg;
+    start_pthread_args[3] = tc;
 
-    return tid;
+    tid_t tid = thread_create(tc->name, PRI_DEFAULT, start_pthread, start_pthread_args);
+    if (tid == TID_ERROR) {
+        return TID_ERROR;
+    } else {
+        sema_down(&tc->start_pthread_sema);
+        if (tc->start_pthread_success) {
+            return tid;
+        } else {
+            return TID_ERROR;
+        }
+    }
 }
 
 /* A thread function that creates a new user thread and starts it
@@ -825,20 +850,32 @@ tid_t pthread_execute(stub_fun sf, pthread_fun tf, void* arg) {
 
    This function will be implemented in Project 2: Multithreading and
    should be similar to start_process (). For now, it does nothing. */
-static void start_pthread(void* setup_thread_args) {
-    stub_fun sf = (stub_fun) ((void **) setup_thread_args)[0];
-    pthread_fun tf = (pthread_fun) ((void **) setup_thread_args)[1];
-    void *arg = ((void **) setup_thread_args)[2];
-                          
+static void start_pthread(void* start_pthread_args) {
+    stub_fun sf = (stub_fun) ((void **) start_pthread_args)[0];
+    pthread_fun tf = (pthread_fun) ((void **) start_pthread_args)[1];
+    void *arg = ((void **) start_pthread_args)[2];
+
+    struct thread *parent_thread = (struct thread *) ((void **) start_pthread_args)[3];
+    thread_current()->pcb = parent_thread->pcb;
+
+    free(start_pthread_args);
+
     struct intr_frame if_;
     memset(&if_, 0, sizeof if_);
     if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
     if_.cs = SEL_UCSEG;
     if_.eflags = FLAG_IF | FLAG_MBS;
     bool success = setup_thread(sf, tf, arg, &if_.eip, &if_.esp);
+
     if (!success) {
+        parent_thread->start_pthread_success = false;
+        sema_up(&parent_thread->start_pthread_sema);
         thread_exit();
+    } else {
+        parent_thread->start_pthread_success = true;
+        sema_up(&parent_thread->start_pthread_sema);
     }
+
     asm volatile("movl %0, %%esp; fsave 48(%%esp); jmp intr_exit" : : "g"(&if_) : "memory");
     NOT_REACHED();
 }
@@ -931,5 +968,5 @@ void pthread_exit_main(void) {
         }
     lock_release(&p->thread_data_lock);
 
-    thread_exit();
+    process_exit(0);
 }
