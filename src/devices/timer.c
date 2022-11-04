@@ -83,7 +83,6 @@ void timer_sleep(int64_t sleep_ticks) {
   struct thread* t = thread_current();
   t->wake_time = ticks + sleep_ticks;
   list_insert_ordered(&sleep_queue, &t->sleep_elem, sleep_less, NULL);
-
   thread_block();
   intr_set_level(old_level);
 }

@@ -609,7 +609,7 @@ uint32_t thread_stack_ofs = offsetof(struct thread, stack);
 
 /* Less function for ordering the sleep queue. */
 bool sleep_less(const struct list_elem* a_, const struct list_elem* b_, void* aux UNUSED) {
-  struct thread* thread_a = list_entry(a_, struct thread, elem);
-  struct thread* thread_b = list_entry(b_, struct thread, elem);
+  struct thread* thread_a = list_entry(a_, struct thread, sleep_elem);
+  struct thread* thread_b = list_entry(b_, struct thread, sleep_elem);
   return thread_a->wake_time < thread_b->wake_time;
 }
