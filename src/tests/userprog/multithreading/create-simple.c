@@ -8,7 +8,9 @@
 void thread_function(void* arg);
 
 /* Simple thread function that just prints PASS */
-void thread_function(void* arg UNUSED) { msg("Thread ran."); }
+void thread_function(void* arg UNUSED) {
+    msg("Thread ran.");
+}
 
 void test_main(void) {
   msg("Main started.");

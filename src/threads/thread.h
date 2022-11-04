@@ -112,6 +112,8 @@ struct thread {
     struct heap *current_heap;  /* Pointer to the current heap that the thread is stored in. */
     struct heap_elem heap_elem; /* Elem that allows the thread to be stored in a heap. */
 
+    bool start_pthread_success;
+    struct semaphore start_pthread_sema;
 
     struct thread_data *data;       /* Data corresponding to this thread. */
     struct thread_data *held_data;  /* Data that this thread may potentially be holding and will need to free on forced exit. */

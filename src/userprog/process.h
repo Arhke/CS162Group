@@ -46,6 +46,7 @@ struct process {
     char process_name[32];                      /* Name of the main thread */
     struct thread* main_thread;                 /* Pointer to main thread */
 
+    /* Project 1 User Programs. */
     struct process *parent_process;             /* Pointer to parent process */
     struct list child_processes;                /* List of struct child_data shared with child processes */
 
@@ -59,8 +60,15 @@ struct process {
     struct file* executable;                    /* Executable that is being run by this process */
 
 
+    /* Project 2 Threads. */
     struct list thread_data;
     struct lock thread_data_lock;
+
+    struct list process_locks;
+    struct lock process_locks_lock;
+
+    struct list process_semas;
+    struct list process_semas_lock;
 };
 
 

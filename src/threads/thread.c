@@ -470,6 +470,8 @@ static void init_thread(struct thread* t, const char* name, int priority) {
     t->effective_priority = priority;
 
     /* Initialize the heap of held locks and set the future heap this thread will be placed on. */
+    sema_init(&t->start_pthread_sema, 0);
+
     heap_init(&t->held_locks);
     t->current_heap = &prio_ready_heap;
 
