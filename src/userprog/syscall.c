@@ -312,5 +312,76 @@ static void syscall_handler(struct intr_frame *f) {
             f->eax = pthread_join((tid_t) args[1]);
 
             break;
+        case SYS_LOCK_INIT:
+            /* Validate arguments */
+            validate_space(f, args, 2 * sizeof(uint32_t));
+            validate_space(f, args[1], 1);
+
+            struct userspace_lock_container *ulc = malloc(sizeof(struct userspace_lock_container));
+            if (ulc == NULL) {
+                f->eax = false;
+            } else {
+                lock_init(&ulc->lock);
+                ulc->userspace_addr = (void *) args[1];
+
+                lock_acquire(&pcb->process_locks_lock);
+                    list_push_back(&pcb->process_locks, &ulc->elem);
+                lock_release(&pcb->process_locks_lock);
+                f->eax = true;
+            }
+
+            break;
+        case SYS_LOCK_ACQUIRE:
+            /* Validate arguments */
+            validate_space(f, args, 2 * sizeof(uint32_t));
+            validate_space(f, args[1], 1);
+
+            struct userspace_lock_container *ulc;
+            struct list_elem *e = list_begin(&pcb->process_locks);
+
+            lock_acquire(&pcb->process_locks_lock);
+                while (e != list_end(&pcb->process_locks)) {
+                    ulc = list_entry(e, struct userspace_lock_container, elem);
+                    if (ulc->userspace_addr == (void *) args[1]) {
+                        break;
+                    }
+                    e = list_next(e);
+                }
+            lock_release(&pcb->process_locks_lock);
+            
+            if (e == list_end(&pcb->process_locks) || ulc->lock.holder == thread_current()) {
+                f->eax = false;
+            } else {
+                lock_acquire(&ulc->lock);
+                f->eax = true;
+            }
+
+            break;
+        case SYS_LOCK_RELEASE:
+            /* Validate arguments */
+            validate_space(f, args, 2 * sizeof(uint32_t));
+            validate_space(f, args[1], 1);
+
+            struct userspace_lock_container *ulc;
+            struct list_elem *e = list_begin(&pcb->process_locks);
+
+            lock_acquire(&pcb->process_locks_lock);
+                while (e != list_end(&pcb->process_locks)) {
+                    ulc = list_entry(e, struct userspace_lock_container, elem);
+                    if (ulc->userspace_addr == (void *) args[1]) {
+                        break;
+                    }
+                    e = list_next(e);
+                }
+            lock_release(&pcb->process_locks_lock);
+            
+            if (e == list_end(&pcb->process_locks) || ulc->lock.holder != thread_current()) {
+                f->eax = false;
+            } else {
+                lock_release(&ulc->lock);
+                f->eax = true;
+            }
+
+            break;
     }
 }
