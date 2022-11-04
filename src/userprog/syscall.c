@@ -67,12 +67,15 @@ static void syscall_handler(struct intr_frame *f) {
     /* Get the current thread's pcb */
     struct process* pcb = thread_current()->pcb;
 
-    /* Setup common variable names for file syscalls */
+    /* Setup common variable names for syscalls */
     char* file_name;
     struct file* desc;
     int fd;
     unsigned buff_size;
     char* buff_ptr;
+
+    struct list_elem *e;
+    struct userspace_lock_container *ulc;
 
     switch (args[0]) {
         case SYS_PRACTICE:
@@ -317,7 +320,7 @@ static void syscall_handler(struct intr_frame *f) {
             validate_space(f, args, 2 * sizeof(uint32_t));
             validate_space(f, args[1], 1);
 
-            struct userspace_lock_container *ulc = malloc(sizeof(struct userspace_lock_container));
+            ulc = malloc(sizeof(struct userspace_lock_container));
             if (ulc == NULL) {
                 f->eax = false;
             } else {
@@ -336,8 +339,7 @@ static void syscall_handler(struct intr_frame *f) {
             validate_space(f, args, 2 * sizeof(uint32_t));
             validate_space(f, args[1], 1);
 
-            struct userspace_lock_container *ulc;
-            struct list_elem *e = list_begin(&pcb->process_locks);
+            e = list_begin(&pcb->process_locks);
 
             lock_acquire(&pcb->process_locks_lock);
                 while (e != list_end(&pcb->process_locks)) {
@@ -362,8 +364,7 @@ static void syscall_handler(struct intr_frame *f) {
             validate_space(f, args, 2 * sizeof(uint32_t));
             validate_space(f, args[1], 1);
 
-            struct userspace_lock_container *ulc;
-            struct list_elem *e = list_begin(&pcb->process_locks);
+            e = list_begin(&pcb->process_locks);
 
             lock_acquire(&pcb->process_locks_lock);
                 while (e != list_end(&pcb->process_locks)) {
