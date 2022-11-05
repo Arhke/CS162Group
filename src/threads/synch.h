@@ -10,6 +10,14 @@ struct semaphore {
     struct list waiters; /* List of waiting threads. */
 };
 
+
+struct userspace_sema_container {
+    struct semaphore sema;
+    void *userspace_addr;
+    struct list_elem elem;
+};
+
+
 void sema_init(struct semaphore*, unsigned value);
 void sema_down(struct semaphore*);
 bool sema_try_down(struct semaphore*);

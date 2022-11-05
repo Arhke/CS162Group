@@ -86,7 +86,7 @@ typedef int tid_t;
 
 
 struct thread_data {
-    size_t stack_slot;          /* Number of pages under PHYS_BASE that this thread's stack occupies. */
+    void *stack_slot;           /* Number of pages under PHYS_BASE that this thread's stack occupies. */
     tid_t tid;                  /* TID of corresponding thread. */
     struct semaphore join_sema; /* Semaphore that allows other threads to join. */
     bool has_exited;            /* Whether corresponding thread has exited or not. */
@@ -102,15 +102,22 @@ struct thread {
     uint8_t* stack;             /* Saved stack pointer. */
     struct list_elem allelem;   /* List element for all threads list. */
 
+    /* Project 2 Threads. */
+
+    /* Efficient Alarm Clock. */
     int64_t wake_time;           /* Absolute time in ticks at which this thread should wake up if sleeping. */
     struct list_elem sleep_elem; /* List element for sleeping threads. */
 
+    /* Strict Priority Scheduler. */
     struct heap held_locks;     /* List of held locks */
     int priority;               /* Priority. */
     int effective_priority;     /* Effective priority. */
 
     struct heap *current_heap;  /* Pointer to the current heap that the thread is stored in. */
     struct heap_elem heap_elem; /* Elem that allows the thread to be stored in a heap. */
+
+    /* User Threads. */
+    void *stack_slot;           /* Number of pages under PHYS_BASE that this thread's stack occupies. */
 
     bool start_pthread_success;
     struct semaphore start_pthread_sema;
