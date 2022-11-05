@@ -472,5 +472,9 @@ static void syscall_handler(struct intr_frame *f) {
             }
 
             break;
+        case SYS_GET_TID:
+            f->eax = thread_current()->tid;
+
+            break;
     }
 }

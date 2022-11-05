@@ -140,8 +140,10 @@ static void start_process(void* aux) {
 
     /* Initialize process control block */
     if (success) {
+        struct process *p = t->pcb;
+
         // Set the pointer to the parent process
-        t->pcb->parent_process = parent;
+        p->parent_process = parent;
 
         // Setup child data 
         child_data_t *child = malloc(sizeof(child_data_t));
@@ -156,13 +158,13 @@ static void start_process(void* aux) {
                 .elem = {0}
             };
             lock_init(&child->elem_modification_lock);
-            parent->start_process_result = t->pcb->child_info = child;
+            parent->start_process_result = p->child_info = child;
 
             // Continue initializing the PCB as normal
-            t->pcb->main_thread = t;
-            strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+            p->main_thread = t;
+            strlcpy(p->process_name, t->name, sizeof t->name);
         } else {
-            struct process* pcb_to_free = t->pcb;
+            struct process* pcb_to_free = p;
             t->pcb = NULL;
             free(pcb_to_free);
         }
@@ -268,6 +270,8 @@ void process_exit(int exit_code) {
         NOT_REACHED();
     }
 
+    /* Project 1 User Programs. */
+
     /* Update the parent process that the child has exited */
     struct process *parent = cur->parent_process;
     child_data_t *cd = cur->child_info;
@@ -317,6 +321,44 @@ void process_exit(int exit_code) {
 
     /* Allow writes to the executable file now that the process is exiting */
     file_close(cur->executable);
+
+
+
+    /* Project 2 Threads. */
+
+    lock_acquire(&cur->thread_data_lock);
+        while (!list_empty(&cur->thread_data)) {
+            e = list_pop_front(&cur->thread_data);
+            free(list_entry(e, struct thread_data, elem));
+        }
+    lock_release(&cur->thread_data_lock);
+
+    lock_acquire(&cur->process_locks_lock);
+        while (!list_empty(&cur->process_locks)) {
+            e = list_pop_front(&cur->process_locks);
+            free(list_entry(e, struct userspace_lock_container, elem));
+        }
+    lock_release(&cur->process_locks_lock);
+
+    lock_acquire(&cur->process_semas_lock);
+        while (!list_empty(&cur->process_semas)) {
+            e = list_pop_front(&cur->process_semas);
+            free(list_entry(e, struct userspace_sema_container, elem));
+        }
+    lock_release(&cur->process_semas_lock);
+
+    // ASSERT(!intr_context());
+    // enum intr_level old_level = intr_disable();
+
+    lock_acquire(&cur->active_threads_lock);
+        for (e = list_begin(&cur->active_threads); e != list_end(&cur->active_threads); e = list_next(e)) {
+            struct thread *t = list_entry(e, struct thread, process_elem);
+            t->forced_exit = true;
+        }
+    lock_release(&cur->active_threads_lock);
+
+    // intr_set_level(old_level);
+
 
     /* Destroy the current process's page directory and switch back
         to the kernel-only page directory. */
@@ -648,7 +690,8 @@ static bool setup_stack(void **esp, const char *file_name) {
 
             td->tid = tc->tid;
             sema_init(&td->join_sema, 0);
-            td->has_exited = false;
+            lock_init(&td->join_lock);
+            td->joined = false;
             list_push_front(&tc->pcb->thread_data, &td->elem);
 
             /* Computation of stack memory requirements. */
@@ -798,10 +841,11 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
             list_insert(e, &tc->process_elem);
             lock_release(&pcb->active_threads_lock);
 
+            td->tid = thread_current()->tid;
+            sema_init(&td->join_sema, 0);
+            lock_init(&td->join_lock);
+            td->joined = false;
             lock_acquire(&pcb->thread_data_lock);
-                td->tid = thread_current()->tid;
-                sema_init(&td->join_sema, 0);
-                td->has_exited = false;
                 list_push_back(&pcb->thread_data, &td->elem);
             lock_release(&pcb->thread_data_lock);
 
@@ -909,15 +953,18 @@ tid_t pthread_join(tid_t tid) {
             for (e = list_begin(&p->thread_data); e != list_end(&p->thread_data); e = list_next(e)) {
                 td = list_entry(e, struct thread_data, elem);
                 if (td->tid == tid) {
-                    list_remove(e);
                     lock_release(&p->thread_data_lock);
-                    
-                    tc->held_data = td;
-                    sema_down(&td->join_sema);
-                    tc->held_data = NULL;
 
-                    free(td);
-                    return tid;
+                    lock_acquire(&td->join_lock);
+                    if (td->joined) {
+                        lock_release(&td->join_lock);
+                        return TID_ERROR;
+                    } else {
+                        td->joined = true;
+                        lock_release(&td->join_lock);
+                        sema_down(&td->join_sema);
+                        return tid;
+                    }
                 }
             }
         lock_release(&p->thread_data_lock);
@@ -946,7 +993,6 @@ void pthread_exit(void) {
         list_remove(&tc->process_elem);
     lock_release(&p->active_threads_lock);
 
-    tc->data->has_exited = true;
     sema_up(&tc->data->join_sema);
 
     thread_exit();
@@ -971,7 +1017,6 @@ void pthread_exit_main(void) {
         list_remove(&tc->process_elem);
     lock_release(&p->active_threads_lock);
 
-    tc->data->has_exited = true;
     sema_up(&tc->data->join_sema);
 
 

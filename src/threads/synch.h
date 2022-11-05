@@ -3,6 +3,7 @@
 
 #include <list.h>
 #include <stdbool.h>
+#include "lib/kernel/heap.h"
 
 /* A counting semaphore. */
 struct semaphore {
@@ -28,6 +29,7 @@ void sema_self_test(void);
 struct lock {
     struct thread* holder;      /* Thread holding lock (for debugging). */
     struct semaphore semaphore; /* Binary semaphore controlling access. */
+    struct heap_elem elem;
 };
 
 

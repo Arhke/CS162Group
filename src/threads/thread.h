@@ -86,10 +86,10 @@ typedef int tid_t;
 
 
 struct thread_data {
-    void *stack_slot;           /* Number of pages under PHYS_BASE that this thread's stack occupies. */
     tid_t tid;                  /* TID of corresponding thread. */
     struct semaphore join_sema; /* Semaphore that allows other threads to join. */
-    bool has_exited;            /* Whether corresponding thread has exited or not. */
+    struct lock join_lock;      /* Lock that prevents concurrent modification of joined variable. */
+    bool joined;                /* Whether corresponding thread has been joined on or not. */
     struct list_elem elem;      /* List element for struct process list of thread_data. */
 };
 
@@ -118,12 +118,11 @@ struct thread {
 
     /* User Threads. */
     void *stack_slot;           /* Number of pages under PHYS_BASE that this thread's stack occupies. */
-
     bool start_pthread_success;
     struct semaphore start_pthread_sema;
-
     struct thread_data *data;       /* Data corresponding to this thread. */
-    struct thread_data *held_data;  /* Data that this thread may potentially be holding and will need to free on forced exit. */
+
+    bool forced_exit;
 
     struct list_elem process_elem;  /* List element for active threads list in struct process. */
 

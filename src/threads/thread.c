@@ -265,10 +265,20 @@ static void thread_enqueue(struct thread* t) {
     ASSERT(intr_get_level() == INTR_OFF);
     ASSERT(is_thread(t));
 
-    if (active_sched_policy == SCHED_FIFO)
-        list_push_back(&fifo_ready_list, &t->elem);
-    else
-        PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
+    switch (active_sched_policy) {
+        case SCHED_FIFO:
+            list_push_back(&fifo_ready_list, &t->elem);
+            break;
+
+        case SCHED_PRIO:
+            t->current_heap = &prio_ready_heap;
+            heap_insert(&prio_ready_heap, &t->heap_elem);
+            break;
+
+        default:
+            PANIC("Unimplemented scheduling policy value: %d", active_sched_policy);
+            break;
+    }
 }
 
 /* Transitions a blocked thread T to the ready-to-run state.
@@ -317,16 +327,26 @@ struct thread* thread_current(void) {
 /* Returns the running thread's tid. */
 tid_t thread_tid(void) { return thread_current()->tid; }
 
+
 /* Deschedules the current thread and destroys it.  Never
    returns to the caller. */
 void thread_exit(void) {
     ASSERT(!intr_context());
+    struct thread *tc = thread_current();
 
     /* Remove thread from all threads list, set our status to dying,
         and schedule another process.  That process will destroy us
         when it calls thread_switch_tail(). */
     intr_disable();
-    list_remove(&thread_current()->allelem);
+    
+    if (tc->current_heap != NULL) {
+        heap_remove(tc->current_heap, &tc->heap_elem);
+    }
+    while (!heap_empty(&tc->held_locks)) {
+        lock_release(heap_entry(heap_pop_max(&tc->held_locks), struct lock, elem));
+    }
+
+    list_remove(&tc->allelem);
     thread_current()->status = THREAD_DYING;
 
     schedule();
@@ -468,11 +488,9 @@ static void init_thread(struct thread* t, const char* name, int priority) {
     t->priority = priority;
     t->effective_priority = priority;
 
-    /* Initialize the heap of held locks and set the future heap this thread will be placed on. */
+    /* Initialize the semaphore for pthread_execute and the heap of held locks. */
     sema_init(&t->start_pthread_sema, 0);
-
     heap_init(&t->held_locks);
-    t->current_heap = &prio_ready_heap;
 
     old_level = intr_disable();
     list_push_back(&all_list, &t->allelem);
@@ -500,7 +518,14 @@ static struct thread* thread_schedule_fifo(void) {
 
 /* Strict priority scheduler */
 static struct thread* thread_schedule_prio(void) {
-    PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
+    if (!heap_empty(&prio_ready_heap)) {
+        struct thread *t = heap_entry(heap_pop_max(&prio_ready_heap), struct thread, heap_elem);
+        t->current_heap = NULL;
+        return t;
+    } else {
+        return idle_thread;
+    }
+    // PANIC("Unimplemented scheduler policy: \"-sched=prio\"");
 }
 
 /* Fair priority scheduler */
