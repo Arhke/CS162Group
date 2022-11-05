@@ -18,9 +18,16 @@
     and have a mapping in the page directory */
 
 /* Validates n bytes of space starting at ptr by validating the start and end addresses */
+
+
+bool is_valid_user_vaddr(void *ptr) {
+    return pagedir_get_page(active_pd(), ptr) != NULL;
+}
+
+
 #define validate_space(if_, ptr, n) ({                                                                          \
-    if ((void *) ((char *) ptr + n) > PHYS_BASE ||                                                              \
-            !(pagedir_get_page(active_pd(), ptr) && pagedir_get_page(active_pd(), (char *) ptr + n - 1))) {     \
+    if ((void *) ptr + n > PHYS_BASE ||                                                                         \
+            !(is_valid_user_vaddr(ptr) && is_valid_user_vaddr((void *) ptr + n - 1))) {                         \
         process_exit(-1);                                                                                       \
         return;                                                                                                 \
     }                                                                                                           \
@@ -28,14 +35,13 @@
 
 /* Validates a string starting at str by iterating one byte at a time and looking for the null terminator */
 #define validate_string(if_, str) ({                                                                            \
-    uint32_t *pd = active_pd();                                                                                 \
-    if ((void *) str >= PHYS_BASE || pagedir_get_page(pd, str) == NULL) {                                       \
+    if ((void *) str >= PHYS_BASE || !is_valid_user_vaddr(str)) {                                               \
         process_exit(-1);                                                                                       \
         return;                                                                                                 \
     }                                                                                                           \
     char *cptr = (char *) str;                                                                                  \
-    while ((void *) cptr < PHYS_BASE && pagedir_get_page(pd, cptr) && *(cptr++));                                                                                                                                       \
-    if (pagedir_get_page(pd, cptr) == NULL) {                                                                   \
+    while ((void *) cptr < PHYS_BASE && is_valid_user_vaddr(cptr) && *(cptr++));                                                                                                                                       \
+    if (!is_valid_user_vaddr(cptr)) {                                                                           \
         process_exit(-1);                                                                                       \
         return;                                                                                                 \
     }                                                                                                           \
@@ -76,6 +82,7 @@ static void syscall_handler(struct intr_frame *f) {
 
     struct list_elem *e;
     struct userspace_lock_container *ulc;
+    struct userspace_sema_container *usc;
 
     switch (args[0]) {
         case SYS_PRACTICE:
@@ -316,71 +323,152 @@ static void syscall_handler(struct intr_frame *f) {
 
             break;
         case SYS_LOCK_INIT:
-            /* Validate arguments */
             validate_space(f, args, 2 * sizeof(uint32_t));
-            validate_space(f, args[1], 1);
 
-            ulc = malloc(sizeof(struct userspace_lock_container));
-            if (ulc == NULL) {
+            if (!is_valid_user_vaddr(args[1])) {
                 f->eax = false;
             } else {
-                lock_init(&ulc->lock);
-                ulc->userspace_addr = (void *) args[1];
+                ulc = malloc(sizeof(struct userspace_lock_container));
+                if (ulc == NULL) {
+                    f->eax = false;
+                } else {
+                    lock_init(&ulc->lock);
+                    ulc->userspace_addr = (void *) args[1];
 
-                lock_acquire(&pcb->process_locks_lock);
-                    list_push_back(&pcb->process_locks, &ulc->elem);
-                lock_release(&pcb->process_locks_lock);
-                f->eax = true;
+                    lock_acquire(&pcb->process_locks_lock);
+                        list_push_back(&pcb->process_locks, &ulc->elem);
+                    lock_release(&pcb->process_locks_lock);
+                    f->eax = true;
+                }
             }
 
             break;
         case SYS_LOCK_ACQUIRE:
-            /* Validate arguments */
             validate_space(f, args, 2 * sizeof(uint32_t));
-            validate_space(f, args[1], 1);
 
-            e = list_begin(&pcb->process_locks);
-
-            lock_acquire(&pcb->process_locks_lock);
-                while (e != list_end(&pcb->process_locks)) {
-                    ulc = list_entry(e, struct userspace_lock_container, elem);
-                    if (ulc->userspace_addr == (void *) args[1]) {
-                        break;
-                    }
-                    e = list_next(e);
-                }
-            lock_release(&pcb->process_locks_lock);
-            
-            if (e == list_end(&pcb->process_locks) || ulc->lock.holder == thread_current()) {
+            if (!is_valid_user_vaddr(args[1])) {
                 f->eax = false;
             } else {
-                lock_acquire(&ulc->lock);
-                f->eax = true;
+                e = list_begin(&pcb->process_locks);
+
+                lock_acquire(&pcb->process_locks_lock);
+                    while (e != list_end(&pcb->process_locks)) {
+                        ulc = list_entry(e, struct userspace_lock_container, elem);
+                        if (ulc->userspace_addr == (void *) args[1]) {
+                            break;
+                        }
+                        e = list_next(e);
+                    }
+                lock_release(&pcb->process_locks_lock);
+                
+                if (e == list_end(&pcb->process_locks) || ulc->lock.holder == thread_current()) {
+                    f->eax = false;
+                } else {
+                    lock_acquire(&ulc->lock);
+                    f->eax = true;
+                }
             }
 
             break;
         case SYS_LOCK_RELEASE:
-            /* Validate arguments */
             validate_space(f, args, 2 * sizeof(uint32_t));
-            validate_space(f, args[1], 1);
 
-            e = list_begin(&pcb->process_locks);
-
-            lock_acquire(&pcb->process_locks_lock);
-                while (e != list_end(&pcb->process_locks)) {
-                    ulc = list_entry(e, struct userspace_lock_container, elem);
-                    if (ulc->userspace_addr == (void *) args[1]) {
-                        break;
-                    }
-                    e = list_next(e);
-                }
-            lock_release(&pcb->process_locks_lock);
-            
-            if (e == list_end(&pcb->process_locks) || ulc->lock.holder != thread_current()) {
+            if (!is_valid_user_vaddr(args[1])) {
                 f->eax = false;
             } else {
-                lock_release(&ulc->lock);
-                f->eax = true;
+                e = list_begin(&pcb->process_locks);
+
+                lock_acquire(&pcb->process_locks_lock);
+                    while (e != list_end(&pcb->process_locks)) {
+                        ulc = list_entry(e, struct userspace_lock_container, elem);
+                        if (ulc->userspace_addr == (void *) args[1]) {
+                            break;
+                        }
+                        e = list_next(e);
+                    }
+                lock_release(&pcb->process_locks_lock);
+                
+                if (e == list_end(&pcb->process_locks) || ulc->lock.holder != thread_current()) {
+                    f->eax = false;
+                } else {
+                    lock_release(&ulc->lock);
+                    f->eax = true;
+                }
+            }
+
+            break;
+        case SYS_SEMA_INIT:
+            validate_space(f, args, 3 * sizeof(uint32_t));
+
+            if (!is_valid_user_vaddr(args[1]) || (int) args[2] < 0) {
+                f->eax = false;
+            } else {
+                usc = malloc(sizeof(struct userspace_sema_container));
+                if (usc == NULL) {
+                    f->eax = false;
+                } else {
+                    sema_init(&usc->sema, args[2]);
+                    usc->userspace_addr = (void *) args[1];
+
+                    lock_acquire(&pcb->process_semas_lock);
+                        list_push_back(&pcb->process_semas, &usc->elem);
+                    lock_release(&pcb->process_semas_lock);
+                    f->eax = true;
+                }
+            }
+
+            break;
+        case SYS_SEMA_DOWN:
+            validate_space(f, args, 2 * sizeof(uint32_t));
+
+            if (!is_valid_user_vaddr(args[1])) {
+                f->eax = false;
+            } else {
+                e = list_begin(&pcb->process_semas);
+
+                lock_acquire(&pcb->process_semas_lock);
+                    while (e != list_end(&pcb->process_semas)) {
+                        usc = list_entry(e, struct userspace_sema_container, elem);
+                        if (usc->userspace_addr == (void *) args[1]) {
+                            break;
+                        }
+                        e = list_next(e);
+                    }
+                lock_release(&pcb->process_semas_lock);
+                
+                if (e == list_end(&pcb->process_semas)) {
+                    f->eax = false;
+                } else {
+                    sema_down(&usc->sema);
+                    f->eax = true;
+                }
+            }
+
+            break;
+        case SYS_SEMA_UP:
+            validate_space(f, args, 2 * sizeof(uint32_t));
+
+            if (!is_valid_user_vaddr(args[1])) {
+                f->eax = false;
+            } else {
+                e = list_begin(&pcb->process_semas);
+
+                lock_acquire(&pcb->process_semas_lock);
+                    while (e != list_end(&pcb->process_semas)) {
+                        usc = list_entry(e, struct userspace_sema_container, elem);
+                        if (usc->userspace_addr == (void *) args[1]) {
+                            break;
+                        }
+                        e = list_next(e);
+                    }
+                lock_release(&pcb->process_semas_lock);
+                
+                if (e == list_end(&pcb->process_semas)) {
+                    f->eax = false;
+                } else {
+                    sema_up(&usc->sema);
+                    f->eax = true;
+                }
             }
 
             break;

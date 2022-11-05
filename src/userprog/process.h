@@ -61,6 +61,12 @@ struct process {
 
 
     /* Project 2 Threads. */
+
+    /* User Threads pthreads. */
+    struct list active_threads;
+    struct lock active_threads_lock;
+
+    /* User Threads Synchronization. */
     struct list thread_data;
     struct lock thread_data_lock;
 

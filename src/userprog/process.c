@@ -45,16 +45,25 @@ bool setup_pcb(void) {
 
     if (success) {
         /* Initialize parent-child data in process */
-        list_init(&(p->child_processes));
-        sema_init(&(p->start_process_sema), 0);
-        sema_init(&(p->wait_sema), 0);
+        list_init(&p->child_processes);
+        sema_init(&p->start_process_sema, 0);
+        sema_init(&p->wait_sema, 0);
 
         /* Initialize fdt */
         fdt_init(p);
 
         /* Initialize thread data elements. */
-        list_init(&(p->thread_data));
-        lock_init(&(p->thread_data_lock));
+        list_init(&p->active_threads);
+        lock_init(&p->active_threads_lock);
+
+        list_init(&p->thread_data);
+        lock_init(&p->thread_data_lock);
+
+        list_init(&p->process_locks);
+        lock_init(&p->process_locks_lock);
+
+        list_init(&p->process_semas);
+        lock_init(&p->process_semas_lock);
     }
     return success;
 }
@@ -630,14 +639,17 @@ static bool setup_stack(void **esp, const char *file_name) {
         success = install_page(((uint8_t*)PHYS_BASE) - PGSIZE, kpage, true);
         if (success) {
             /* Allocate new thread_data for the main thread and add it to the list. */
+            struct thread *tc = thread_current();
             struct thread_data *td = malloc(sizeof(struct thread_data));
 
-            thread_current()->data = td;
-            td->stack_slot = 0;
-            td->tid = thread_current()->tid;
+            tc->data = td;
+            tc->stack_slot = PHYS_BASE;
+            list_push_front(&tc->pcb->active_threads, &tc->process_elem);
+
+            td->tid = tc->tid;
             sema_init(&td->join_sema, 0);
             td->has_exited = false;
-            list_push_front(&thread_current()->pcb->thread_data, &td->elem);
+            list_push_front(&tc->pcb->thread_data, &td->elem);
 
             /* Computation of stack memory requirements. */
             int argc = 0, capacity = 1;
@@ -756,48 +768,48 @@ pid_t get_pid(struct process* p) { return (pid_t)p->main_thread->tid; }
    now, it does nothing. You may find it necessary to change the
    function signature. */
 bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), void** esp) {
+    process_activate();
+
     void *kpage = palloc_get_page(PAL_USER | PAL_ZERO);
     bool success;
     if (kpage != NULL) {
-        struct process *pcb = thread_current()->pcb;
-        uint32_t open_stack_slot = 1;
+        struct thread *tc = thread_current();
+        struct process *pcb = tc->pcb;
+        void *open_stack_slot = PHYS_BASE;
     
-        lock_acquire(&pcb->thread_data_lock);
+        lock_acquire(&pcb->active_threads_lock);
         struct list_elem *e;
-        for (e = list_begin(&pcb->thread_data); e != list_end(&pcb->thread_data); e = list_next(e)) {
+        for (e = list_begin(&pcb->active_threads); e != list_end(&pcb->active_threads); e = list_next(e)) {
             /* Iterate through thread_data until find an open stack slot */
-            struct thread_data *d = list_entry(e, struct thread_data, elem);
-            if (d->has_exited) {
-                if (d->stack_slot >= open_stack_slot) {
-                    break;
-                }
+            struct thread *t = list_entry(e, struct thread, process_elem);
+            if (t->stack_slot < open_stack_slot) {
+                break;
             } else {
-                if (d->stack_slot == open_stack_slot) {
-                    open_stack_slot++;
-                } else {
-                    break;
-                }
+                open_stack_slot -= PGSIZE;
             }
         }
 
-        success = install_page(PHYS_BASE - ((open_stack_slot + 1) << PGBITS), kpage, true);
+        success = install_page(open_stack_slot - PGSIZE, kpage, true);
         if (success) {
             struct thread_data *td = malloc(sizeof(struct thread_data));
 
-            thread_current()->data = td;
-            td->stack_slot = open_stack_slot;
-            td->tid = thread_current()->tid;
-            sema_init(&td->join_sema, 0);
-            td->has_exited = false;
-            list_insert(list_next(e), &td->elem);
+            tc->data = td;
+            tc->stack_slot = open_stack_slot;
+            list_insert(e, &tc->process_elem);
+            lock_release(&pcb->active_threads_lock);
 
+            lock_acquire(&pcb->thread_data_lock);
+                td->tid = thread_current()->tid;
+                sema_init(&td->join_sema, 0);
+                td->has_exited = false;
+                list_push_back(&pcb->thread_data, &td->elem);
             lock_release(&pcb->thread_data_lock);
 
             uint32_t memreq = sizeof(tf) + sizeof(arg);
             uint32_t padding = -memreq & 0xF;
             memreq += (padding + 4);
             
-            *esp = PHYS_BASE - (open_stack_slot << PGBITS) - memreq;
+            *esp = open_stack_slot - memreq;
             void **stack_ptr = (void **) *esp;
         
             *stack_ptr = NULL;
@@ -807,7 +819,7 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
             *eip = sf;
         } else {
             palloc_free_page(kpage);
-            lock_release(&pcb->thread_data_lock);
+            lock_release(&pcb->active_threads_lock);
         }
     }
     return success;
@@ -825,7 +837,7 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
 tid_t pthread_execute(stub_fun sf, pthread_fun tf, void* arg) {
     struct thread *tc = thread_current();
 
-    void **start_pthread_args = malloc(4 * sizeof(void *));
+    void *start_pthread_args[4];
     start_pthread_args[0] = sf;
     start_pthread_args[1] = tf;
     start_pthread_args[2] = arg;
@@ -857,8 +869,6 @@ static void start_pthread(void* start_pthread_args) {
 
     struct thread *parent_thread = (struct thread *) ((void **) start_pthread_args)[3];
     thread_current()->pcb = parent_thread->pcb;
-
-    free(start_pthread_args);
 
     struct intr_frame if_;
     memset(&if_, 0, sizeof if_);
@@ -927,6 +937,15 @@ tid_t pthread_join(tid_t tid) {
    now, it does nothing. */
 void pthread_exit(void) {
     struct thread *tc = thread_current();
+    struct process *p = tc->pcb;
+
+    palloc_free_page(pagedir_get_page(p->pagedir, tc->stack_slot - PGSIZE));
+    pagedir_clear_page(p->pagedir, tc->stack_slot - PGSIZE);
+
+    lock_acquire(&p->active_threads_lock);
+        list_remove(&tc->process_elem);
+    lock_release(&p->active_threads_lock);
+
     tc->data->has_exited = true;
     sema_up(&tc->data->join_sema);
 
@@ -935,7 +954,7 @@ void pthread_exit(void) {
 
 /* Only to be used when the main thread explicitly calls pthread_exit.
    The main thread should wait on all threads in the process to
-   terminate properly, before exiting itself. When it exits itself, it
+   terminate properly, before exiting its   elf. When it exits itself, it
    must terminate the process in addition to all necessary duties in
    pthread_exit.
 
@@ -943,30 +962,32 @@ void pthread_exit(void) {
    now, it does nothing. */
 void pthread_exit_main(void) {
     struct thread *tc = thread_current();
+    struct process *p = tc->pcb;
+
+    palloc_free_page(pagedir_get_page(p->pagedir, tc->stack_slot - PGSIZE));
+    pagedir_clear_page(p->pagedir, tc->stack_slot - PGSIZE);
+
+    lock_acquire(&p->active_threads_lock);
+        list_remove(&tc->process_elem);
+    lock_release(&p->active_threads_lock);
+
     tc->data->has_exited = true;
     sema_up(&tc->data->join_sema);
 
-    struct process *p = tc->pcb;
 
-    struct thread_data *td;
+    struct thread *t;
     struct list_elem *e;
-    lock_acquire(&p->thread_data_lock);
-        while (!list_empty(&p->thread_data)) {
-            e = list_pop_back(&p->thread_data);
-            lock_release(&p->thread_data_lock);
+    lock_acquire(&p->active_threads_lock);
+        while (!list_empty(&p->active_threads)) {
+            e = list_back(&p->active_threads);
+            lock_release(&p->active_threads_lock);
 
-            td = list_entry(e, struct thread_data, elem);
+            t = list_entry(e, struct thread, process_elem);
+            pthread_join(t->tid);
 
-            if (td->tid != tc->tid) {
-                tc->held_data = td;
-                sema_down(&td->join_sema);
-                tc->held_data = NULL;
-            }
-
-            free(td);
-            lock_acquire(&p->thread_data_lock);
+            lock_acquire(&p->active_threads_lock);
         }
-    lock_release(&p->thread_data_lock);
+    lock_release(&p->active_threads_lock);
 
     process_exit(0);
 }
