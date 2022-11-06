@@ -690,8 +690,6 @@ static bool setup_stack(void **esp, const char *file_name) {
 
             td->tid = tc->tid;
             sema_init(&td->join_sema, 0);
-            lock_init(&td->join_lock);
-            td->joined = false;
             list_push_front(&tc->pcb->thread_data, &td->elem);
 
             /* Computation of stack memory requirements. */
@@ -843,8 +841,6 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
 
             td->tid = thread_current()->tid;
             sema_init(&td->join_sema, 0);
-            lock_init(&td->join_lock);
-            td->joined = false;
             lock_acquire(&pcb->thread_data_lock);
                 list_push_back(&pcb->thread_data, &td->elem);
             lock_release(&pcb->thread_data_lock);
@@ -953,18 +949,13 @@ tid_t pthread_join(tid_t tid) {
             for (e = list_begin(&p->thread_data); e != list_end(&p->thread_data); e = list_next(e)) {
                 td = list_entry(e, struct thread_data, elem);
                 if (td->tid == tid) {
+                    list_remove(e);
                     lock_release(&p->thread_data_lock);
 
-                    lock_acquire(&td->join_lock);
-                    if (td->joined) {
-                        lock_release(&td->join_lock);
-                        return TID_ERROR;
-                    } else {
-                        td->joined = true;
-                        lock_release(&td->join_lock);
-                        sema_down(&td->join_sema);
-                        return tid;
-                    }
+                    sema_down(&td->join_sema);
+                    free(td);
+                    
+                    return tid;
                 }
             }
         lock_release(&p->thread_data_lock);

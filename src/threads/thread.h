@@ -88,8 +88,6 @@ typedef int tid_t;
 struct thread_data {
     tid_t tid;                  /* TID of corresponding thread. */
     struct semaphore join_sema; /* Semaphore that allows other threads to join. */
-    struct lock join_lock;      /* Lock that prevents concurrent modification of joined variable. */
-    bool joined;                /* Whether corresponding thread has been joined on or not. */
     struct list_elem elem;      /* List element for struct process list of thread_data. */
 };
 
