@@ -263,7 +263,6 @@ void process_exit(int exit_code) {
     struct process* cur = thread_current()->pcb;
     printf("%s: exit(%d)\n", cur->process_name, exit_code);
 
-    uint32_t* pd;
     /* If this thread does not have a PCB, don't worry */
     if (cur == NULL) {
         thread_exit();
@@ -326,62 +325,12 @@ void process_exit(int exit_code) {
 
     /* Project 2 Threads. */
 
-    lock_acquire(&cur->thread_data_lock);
-        while (!list_empty(&cur->thread_data)) {
-            e = list_pop_front(&cur->thread_data);
-            free(list_entry(e, struct thread_data, elem));
-        }
-    lock_release(&cur->thread_data_lock);
+    ASSERT(!intr_context());
+    enum intr_level old_level = intr_disable();
 
-    lock_acquire(&cur->process_locks_lock);
-        while (!list_empty(&cur->process_locks)) {
-            e = list_pop_front(&cur->process_locks);
-            free(list_entry(e, struct userspace_lock_container, elem));
-        }
-    lock_release(&cur->process_locks_lock);
+    cur->forced_exit = true;
 
-    lock_acquire(&cur->process_semas_lock);
-        while (!list_empty(&cur->process_semas)) {
-            e = list_pop_front(&cur->process_semas);
-            free(list_entry(e, struct userspace_sema_container, elem));
-        }
-    lock_release(&cur->process_semas_lock);
-
-    // ASSERT(!intr_context());
-    // enum intr_level old_level = intr_disable();
-
-    lock_acquire(&cur->active_threads_lock);
-        for (e = list_begin(&cur->active_threads); e != list_end(&cur->active_threads); e = list_next(e)) {
-            struct thread *t = list_entry(e, struct thread, process_elem);
-            t->forced_exit = true;
-        }
-    lock_release(&cur->active_threads_lock);
-
-    // intr_set_level(old_level);
-
-
-    /* Destroy the current process's page directory and switch back
-        to the kernel-only page directory. */
-    pd = cur->pagedir;
-    if (pd != NULL) {
-        /* Correct ordering here is crucial.  We must set
-            cur->pcb->pagedir to NULL before switching page directories,
-            so that a timer interrupt can't switch back to the
-            process page directory.  We must activate the base page
-            directory before destroying the process's page
-            directory, or our active page directory will be one
-            that's been freed (and cleared). */
-        cur->pagedir = NULL;
-        pagedir_activate(NULL);
-        pagedir_destroy(pd);
-    }
-
-    /* Free the PCB of this process and kill this thread
-        Avoid race where PCB is freed before t->pcb is set to NULL
-        If this happens, then an unfortuantely timed timer interrupt
-        can try to activate the pagedir, but it is now freed memory */
-    thread_current()->pcb = NULL;
-    free(cur);
+    intr_set_level(old_level);
 
     thread_exit();
 }
@@ -974,18 +923,6 @@ tid_t pthread_join(tid_t tid) {
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
 void pthread_exit(void) {
-    struct thread *tc = thread_current();
-    struct process *p = tc->pcb;
-
-    palloc_free_page(pagedir_get_page(p->pagedir, tc->stack_slot - PGSIZE));
-    pagedir_clear_page(p->pagedir, tc->stack_slot - PGSIZE);
-
-    lock_acquire(&p->active_threads_lock);
-        list_remove(&tc->process_elem);
-    lock_release(&p->active_threads_lock);
-
-    sema_up(&tc->data->join_sema);
-
     thread_exit();
 }
 
@@ -998,27 +935,18 @@ void pthread_exit(void) {
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
 void pthread_exit_main(void) {
-    struct thread *tc = thread_current();
-    struct process *p = tc->pcb;
+    sema_up(&thread_current()->data->join_sema);
 
-    palloc_free_page(pagedir_get_page(p->pagedir, tc->stack_slot - PGSIZE));
-    pagedir_clear_page(p->pagedir, tc->stack_slot - PGSIZE);
-
-    lock_acquire(&p->active_threads_lock);
-        list_remove(&tc->process_elem);
-    lock_release(&p->active_threads_lock);
-
-    sema_up(&tc->data->join_sema);
-
-
+    struct process *p = thread_current()->pcb;
     struct thread *t;
     struct list_elem *e;
     lock_acquire(&p->active_threads_lock);
-        while (!list_empty(&p->active_threads)) {
+        while (list_size(&p->active_threads) > 1) {
             e = list_back(&p->active_threads);
             lock_release(&p->active_threads_lock);
 
             t = list_entry(e, struct thread, process_elem);
+            ASSERT(t != p->main_thread);
             pthread_join(t->tid);
 
             lock_acquire(&p->active_threads_lock);

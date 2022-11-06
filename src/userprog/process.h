@@ -74,7 +74,9 @@ struct process {
     struct lock process_locks_lock;
 
     struct list process_semas;
-    struct list process_semas_lock;
+    struct lock process_semas_lock;
+
+    bool forced_exit;
 };
 
 

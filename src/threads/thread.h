@@ -120,8 +120,6 @@ struct thread {
     struct semaphore start_pthread_sema;
     struct thread_data *data;       /* Data corresponding to this thread. */
 
-    bool forced_exit;
-
     struct list_elem process_elem;  /* List element for active threads list in struct process. */
 
     /* Shared between thread.c and synch.c. */

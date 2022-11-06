@@ -333,12 +333,77 @@ tid_t thread_tid(void) { return thread_current()->tid; }
 void thread_exit(void) {
     ASSERT(!intr_context());
     struct thread *tc = thread_current();
+    struct process *p = tc->pcb;
+
+    if (p != NULL) {
+        if (p->pagedir != NULL && tc->stack_slot != NULL) {
+            palloc_free_page(pagedir_get_page(p->pagedir, tc->stack_slot - PGSIZE));
+            pagedir_clear_page(p->pagedir, tc->stack_slot - PGSIZE);
+        }
+
+        lock_acquire(&p->active_threads_lock);
+            list_remove(&tc->process_elem);
+
+            if (list_empty(&p->active_threads)) {
+                struct list_elem *e;
+                lock_acquire(&p->thread_data_lock);
+                    while (!list_empty(&p->thread_data)) {
+                        e = list_pop_front(&p->thread_data);
+                        free(list_entry(e, struct thread_data, elem));
+                    }
+                lock_release(&p->thread_data_lock);
+
+                lock_acquire(&p->process_locks_lock);
+                    while (!list_empty(&p->process_locks)) {
+                        e = list_pop_front(&p->process_locks);
+                        free(list_entry(e, struct userspace_lock_container, elem));
+                    }
+                lock_release(&p->process_locks_lock);
+
+                lock_acquire(&p->process_semas_lock);
+                    while (!list_empty(&p->process_semas)) {
+                        e = list_pop_front(&p->process_semas);
+                        free(list_entry(e, struct userspace_sema_container, elem));
+                    }
+                lock_release(&p->process_semas_lock);
+
+                lock_release(&p->active_threads_lock);
+                /* Destroy the current process's page directory and switch back
+                    to the kernel-only page directory. */
+
+                uint32_t* pd = p->pagedir;
+                if (pd != NULL) {
+                    /* Correct ordering here is crucial.  We must set
+                        cur->pcb->pagedir to NULL before switching page directories,
+                        so that a timer interrupt can't switch back to the
+                        process page directory.  We must activate the base page
+                        directory before destroying the process's page
+                        directory, or our active page directory will be one
+                        that's been freed (and cleared). */
+                    p->pagedir = NULL;
+                    pagedir_activate(NULL);
+                    pagedir_destroy(pd);
+                }
+
+                /* Free the PCB of this process and kill this thread
+                    Avoid race where PCB is freed before t->pcb is set to NULL
+                    If this happens, then an unfortuantely timed timer interrupt
+                    can try to activate the pagedir, but it is now freed memory */
+                thread_current()->pcb = NULL;
+                free(p);
+            } else {
+                lock_release(&p->active_threads_lock);
+                sema_up(&tc->data->join_sema);
+            }
+    }
+
 
     /* Remove thread from all threads list, set our status to dying,
         and schedule another process.  That process will destroy us
         when it calls thread_switch_tail(). */
     intr_disable();
-    
+
+    list_remove(&tc->allelem);
     if (tc->current_heap != NULL) {
         heap_remove(tc->current_heap, &tc->heap_elem);
     }
@@ -346,7 +411,6 @@ void thread_exit(void) {
         lock_release(heap_entry(heap_pop_max(&tc->held_locks), struct lock, elem));
     }
 
-    list_remove(&tc->allelem);
     thread_current()->status = THREAD_DYING;
 
     schedule();

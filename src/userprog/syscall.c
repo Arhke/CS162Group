@@ -477,4 +477,8 @@ static void syscall_handler(struct intr_frame *f) {
 
             break;
     }
+
+    if (pcb->forced_exit) {
+        thread_exit();
+    }
 }

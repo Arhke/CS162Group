@@ -13,7 +13,6 @@
 #include "userprog/gdt.h"
 #endif
 
-// #define FORCED_EXIT
 
 /* Programmable Interrupt Controller (PIC) registers.
    A PC has two PICs, called the master and slave PICs, with the
@@ -348,36 +347,17 @@ void intr_handler(struct intr_frame* frame) {
 
     /* Complete the processing of an external interrupt. */
 
-    #ifndef FORCED_EXIT
-        if (external) {
-            ASSERT(intr_get_level() == INTR_OFF);
-            ASSERT(intr_context());
+    if (external) {
+        ASSERT(intr_get_level() == INTR_OFF);
+        ASSERT(intr_context());
 
-            in_external_intr = false;
-            pic_end_of_interrupt(frame->vec_no);
+        in_external_intr = false;
+        pic_end_of_interrupt(frame->vec_no);
 
-            if (yield_on_return) {
-                thread_yield();
-            }
+        if (yield_on_return) {
+            thread_yield();
         }
-
-    #else
-        if (external) {
-            ASSERT(intr_get_level() == INTR_OFF);
-            ASSERT(intr_context());
-
-            in_external_intr = false;
-            pic_end_of_interrupt(frame->vec_no);
-
-            if (thread_current()->forced_exit) {
-                thread_exit();
-            } else if (yield_on_return) {
-                thread_yield();
-            }
-        } else if (thread_current()->forced_exit) {
-            thread_exit();
-        }
-    #endif
+    }
 }
 
 /* Handles an unexpected interrupt with interrupt frame F.  An
