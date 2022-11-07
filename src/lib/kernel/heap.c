@@ -86,7 +86,7 @@ struct heap_elem *heap_pop_max(struct heap *heap) {
 
     heap_sink(heap, 1);
 
-    if (heap->capacity >= heap->size << 2) {
+    if (heap->capacity >= heap->size << 1) {
         heap->capacity >>= 1;
         heap->elems = realloc(heap->elems, heap->capacity * sizeof(struct heap_elem *));
     }
@@ -102,7 +102,7 @@ void heap_remove(struct heap *heap, struct heap_elem *elem) {
 
     heap_sink(heap, index);
 
-    if (heap->capacity >= heap->size << 2) {
+    if (heap->capacity >= heap->size << 1) {
         heap->capacity >>= 1;
         heap->elems = realloc(heap->elems, heap->capacity * sizeof(struct heap_elem *));
     };
