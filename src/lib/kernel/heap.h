@@ -11,14 +11,13 @@
 /* Heap element. */
 struct heap_elem {
     int key;
-    int heap_index;
+    struct heap_elem *parent, *left, *right;
 };
 
 /* Heap. */
 struct heap {
-    struct heap_elem **elems;   /* Array of elements for array heap implementation */
+    struct heap_elem *root;     /* Array of elements for array heap implementation */
     size_t size;                /* Size of heap */
-    size_t capacity;            /* Capacity of allocated space, used for dynamic reallocation */
 };
 
 #define heap_entry(HEAP_ELEM, STRUCT, MEMBER) ((STRUCT *) ((uint8_t *) &(HEAP_ELEM)->key - offsetof(STRUCT, MEMBER.key)))
@@ -26,7 +25,8 @@ struct heap {
 /* Heap initialization. */
 void heap_init(struct heap *);
 
-/* Access the maximum element. */
+/* Access the heap elements. */
+struct heap_elem *heap_get_index(struct heap *, int);
 struct heap_elem *heap_max(struct heap *);
 
 /* Heap insertion. */
@@ -43,8 +43,5 @@ void heap_updateKey(struct heap *, struct heap_elem *, int);
 /* Heap properties. */
 size_t heap_size(struct heap *);
 bool heap_empty(struct heap *);
-
-/* Destroy heap. */
-void heap_destroy(struct heap *);
 
 #endif /* lib/kernel/heap.h */
