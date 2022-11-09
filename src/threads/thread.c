@@ -241,6 +241,9 @@ tid_t thread_create(const char* name, int priority, thread_func* function, void*
 
     /* Add to run queue. */
     thread_unblock(t);
+    if (priority > thread_current()->effective_priority) {
+        thread_yield();
+    }
     return tid;
 }
 
@@ -336,6 +339,16 @@ void thread_exit(void) {
     struct thread *tc = thread_current();
     struct process *p = tc->pcb;
 
+    intr_disable();
+
+    list_remove(&tc->allelem);
+    if (tc->current_heap != NULL) {
+        heap_remove(tc->current_heap, &tc->heap_elem);
+    }
+    while (!heap_empty(&tc->held_locks)) {
+        lock_release(heap_entry(heap_max(&tc->held_locks), struct lock, elem));
+    }
+
     if (p != NULL) {
         if (p->pagedir != NULL && tc->stack_slot != NULL) {
             palloc_free_page(pagedir_get_page(p->pagedir, tc->stack_slot - PGSIZE));
@@ -402,15 +415,6 @@ void thread_exit(void) {
     /* Remove thread from all threads list, set our status to dying,
         and schedule another process.  That process will destroy us
         when it calls thread_switch_tail(). */
-    intr_disable();
-
-    list_remove(&tc->allelem);
-    if (tc->current_heap != NULL) {
-        heap_remove(tc->current_heap, &tc->heap_elem);
-    }
-    while (!heap_empty(&tc->held_locks)) {
-        lock_release(heap_entry(heap_pop_max(&tc->held_locks), struct lock, elem));
-    }
 
     thread_current()->status = THREAD_DYING;
 
@@ -449,8 +453,14 @@ void thread_foreach(thread_action_func* func, void* aux) {
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
-    thread_current()->priority = new_priority;
-    thread_current()->effective_priority = max(new_priority, thread_current()->effective_priority);
+    struct thread *tc = thread_current();
+    tc->priority = new_priority;
+    /*
+    if (heap_empty(&tc->held_locks)) {
+        tc->effective_priority = new_priority;
+    } else {
+        tc->effective_priority = max(new_priority, heap_max(&tc->held_locks)->key);
+    } */
 
     enum intr_level old_level = intr_disable();
     thread_refresh_priority(thread_current());
@@ -567,6 +577,7 @@ static void init_thread(struct thread* t, const char* name, int priority) {
 
     t->priority = priority;
     t->effective_priority = priority;
+    t->heap_elem.key = priority;
 
     /* Initialize the semaphore for pthread_execute and the heap of held locks. */
     sema_init(&t->start_pthread_sema, 0);
@@ -718,12 +729,15 @@ void thread_refresh_priority(struct thread *t) {
         new_effective_priority =  max(t->priority, heap_max(&t->held_locks)->key);
     }
 
-    if (new_effective_priority != old_effective_priority) {
-        t->effective_priority = new_effective_priority;
-        if (t->waiting_lock != NULL) {
-            heap_updateKey(t->current_heap, &t->heap_elem, new_effective_priority);
-            lock_refresh_donors(t->waiting_lock);
-        }
+    t->effective_priority = new_effective_priority;
+    if (t->current_heap != NULL) {
+        heap_updateKey(t->current_heap, &t->heap_elem, new_effective_priority);
+    } else {
+        t->heap_elem.key = new_effective_priority;
+    }
+    
+    if (t->waiting_lock != NULL) {
+        lock_refresh_donors(t->waiting_lock);
     }
 }
 

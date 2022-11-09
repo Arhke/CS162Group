@@ -133,9 +133,6 @@ static void sema_test_helper(void* sema_) {
 
 void lock_refresh_donors(struct lock *lock) {
     ASSERT(lock != NULL);
-    if (lock->holder == NULL) {
-        return;
-    }
 
     int old_max_donor = lock->elem.key, new_max_donor;
     if (heap_empty(&lock->waiters)) {
@@ -144,7 +141,10 @@ void lock_refresh_donors(struct lock *lock) {
         new_max_donor = heap_max(&lock->waiters)->key;
     }
 
-    if (new_max_donor != old_max_donor) {
+    if (lock->holder == NULL || new_max_donor == old_max_donor) {
+        lock->elem.key = new_max_donor;
+        return;
+    } else {
         heap_updateKey(&lock->holder->held_locks, &lock->elem, new_max_donor);
         thread_refresh_priority(lock->holder);
     }
