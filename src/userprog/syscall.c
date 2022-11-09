@@ -363,6 +363,7 @@ static void syscall_handler(struct intr_frame *f) {
                 
                 if (e == list_end(&pcb->process_locks) || ulc->lock.holder == thread_current()) {
                     f->eax = false;
+                    process_exit(1);
                 } else {
                     lock_acquire(&ulc->lock);
                     f->eax = true;

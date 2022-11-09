@@ -8,6 +8,9 @@
 #include "threads/synch.h"
 #include "threads/fixed-point.h"
 
+
+static struct heap prio_ready_heap;
+
 /* States in a thread's life cycle. */
 enum thread_status {
   THREAD_RUNNING, /* Running thread. */
@@ -108,6 +111,8 @@ struct thread {
 
     /* Strict Priority Scheduler. */
     struct heap held_locks;     /* List of held locks */
+    struct lock *waiting_lock;
+
     int priority;               /* Priority. */
     int effective_priority;     /* Effective priority. */
 
@@ -187,6 +192,8 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
+
+void thread_refresh_priority(struct thread*);
 
 bool sleep_less(const struct list_elem* a_, const struct list_elem* b_, void* aux UNUSED);
 

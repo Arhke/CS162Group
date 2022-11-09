@@ -20,10 +20,11 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
+#define max(a, b) ((a > b) ? a : b)
+
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list fifo_ready_list;
-static struct heap prio_ready_heap;
 
 /* Global ordered list of sleeping threads used by timer_sleep. */
 struct list sleep_queue;
@@ -447,10 +448,25 @@ void thread_foreach(thread_action_func* func, void* aux) {
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
-void thread_set_priority(int new_priority) { thread_current()->priority = new_priority; }
+void thread_set_priority(int new_priority) {
+    thread_current()->priority = new_priority;
+    thread_current()->effective_priority = max(new_priority, thread_current()->effective_priority);
+
+    enum intr_level old_level = intr_disable();
+    thread_refresh_priority(thread_current());
+
+    if (!heap_empty(&prio_ready_heap) && thread_current()->effective_priority < heap_max(&prio_ready_heap)->key) {
+        intr_set_level(old_level);
+        thread_yield();
+    } else {
+        intr_set_level(old_level);
+    }
+}
 
 /* Returns the current thread's priority. */
-int thread_get_priority(void) { return thread_current()->priority; }
+int thread_get_priority(void) {
+    return thread_current()->effective_priority;
+}
 
 /* Sets the current thread's nice value to NICE. */
 void thread_set_nice(int nice UNUSED) { /* Not yet implemented. */
@@ -692,6 +708,25 @@ static tid_t allocate_tid(void) {
 
     return tid;
 }
+
+void thread_refresh_priority(struct thread *t) {
+    int old_effective_priority = t->effective_priority, new_effective_priority;
+
+    if (heap_empty(&t->held_locks)) {
+        new_effective_priority = t->priority;
+    } else {
+        new_effective_priority =  max(t->priority, heap_max(&t->held_locks)->key);
+    }
+
+    if (new_effective_priority != old_effective_priority) {
+        t->effective_priority = new_effective_priority;
+        if (t->waiting_lock != NULL) {
+            heap_updateKey(t->current_heap, &t->heap_elem, new_effective_priority);
+            lock_refresh_donors(t->waiting_lock);
+        }
+    }
+}
+
 
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */

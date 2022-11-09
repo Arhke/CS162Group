@@ -131,6 +131,25 @@ static void sema_test_helper(void* sema_) {
     }
 }
 
+void lock_refresh_donors(struct lock *lock) {
+    ASSERT(lock != NULL);
+    if (lock->holder == NULL) {
+        return;
+    }
+
+    int old_max_donor = lock->elem.key, new_max_donor;
+    if (heap_empty(&lock->waiters)) {
+        new_max_donor = 0;
+    } else {
+        new_max_donor = heap_max(&lock->waiters)->key;
+    }
+
+    if (new_max_donor != old_max_donor) {
+        heap_updateKey(&lock->holder->held_locks, &lock->elem, new_max_donor);
+        thread_refresh_priority(lock->holder);
+    }
+}
+
 /* Initializes LOCK.  A lock can be held by at most a single
    thread at any given time.  Our locks are not "recursive", that
    is, it is an error for the thread currently holding a lock to
@@ -147,9 +166,8 @@ static void sema_test_helper(void* sema_) {
    instead of a lock. */
 void lock_init(struct lock* lock) {
     ASSERT(lock != NULL);
-
     lock->holder = NULL;
-    sema_init(&lock->semaphore, 1);
+    heap_init(&lock->waiters);
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -160,12 +178,28 @@ void lock_init(struct lock* lock) {
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
 void lock_acquire(struct lock* lock) {
+    enum intr_level old_level;
+
     ASSERT(lock != NULL);
     ASSERT(!intr_context());
     ASSERT(!lock_held_by_current_thread(lock));
 
-    sema_down(&lock->semaphore);
+    old_level = intr_disable();
+    while (lock->holder != NULL) {
+        heap_insert(&lock->waiters, &thread_current()->heap_elem);
+        thread_current()->waiting_lock = lock;
+
+        lock_refresh_donors(lock);
+        thread_block();
+    }
+    
     lock->holder = thread_current();
+    thread_current()->waiting_lock = NULL;
+
+    heap_insert(&thread_current()->held_locks, &lock->elem);
+    thread_refresh_priority(thread_current());
+
+    intr_set_level(old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -175,13 +209,25 @@ void lock_acquire(struct lock* lock) {
    interrupt handler. */
 bool lock_try_acquire(struct lock* lock) {
     bool success;
+    enum intr_level old_level;
 
     ASSERT(lock != NULL);
+    ASSERT(!intr_context());
     ASSERT(!lock_held_by_current_thread(lock));
 
-    success = sema_try_down(&lock->semaphore);
-    if (success)
+    old_level = intr_disable();
+    if (lock->holder != NULL) {
+        success = false;
+    } else {
         lock->holder = thread_current();
+        thread_current()->waiting_lock = NULL;
+
+        heap_insert(&thread_current()->held_locks, &lock->elem);
+        thread_refresh_priority(thread_current());
+        success = true;
+    }
+
+    intr_set_level(old_level);
     return success;
 }
 
@@ -190,11 +236,33 @@ bool lock_try_acquire(struct lock* lock) {
    make sense to try to release a lock within an interrupt
    handler. */
 void lock_release(struct lock* lock) {
+    enum intr_level old_level;
+
     ASSERT(lock != NULL);
     ASSERT(lock_held_by_current_thread(lock));
 
+    old_level = intr_disable();
+
     lock->holder = NULL;
-    sema_up(&lock->semaphore);
+    heap_remove(&thread_current()->held_locks, &lock->elem);
+
+    if (!heap_empty(&lock->waiters)) {
+        thread_unblock(heap_entry(heap_pop_max(&lock->waiters), struct thread, heap_elem));
+    }
+    if (heap_empty(&lock->waiters)) {
+        lock->elem.key = 0;
+    } else {
+        lock->elem.key = heap_max(&lock->waiters)->key;
+    }
+
+    thread_refresh_priority(thread_current());
+
+    if (!heap_empty(&prio_ready_heap) && thread_current()->effective_priority < heap_max(&prio_ready_heap)->key) {
+        intr_set_level(old_level);
+        thread_yield();
+    } else {
+        intr_set_level(old_level);
+    }
 }
 
 /* Returns true if the current thread holds LOCK, false

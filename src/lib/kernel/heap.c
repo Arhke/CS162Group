@@ -101,7 +101,10 @@ void heap_sink(struct heap *heap, struct heap_elem *elem) {
 
 /* Inserts an element into the heap. */
 void heap_insert(struct heap *heap, struct heap_elem *elem) {
+    elem->left = NULL;
+    elem->right = NULL;
     if (heap->size == 0) {
+        elem->parent = NULL;
         heap->root = elem;
     } else {
         struct heap_elem *parent = heap_get_index(heap, (heap->size + 1) >> 1);
@@ -146,7 +149,6 @@ void heap_remove(struct heap *heap, struct heap_elem *elem) {
     if (elem == heap->root) {
         heap_pop_max(heap);
     } else {
-        printf("Here\n");
         struct heap_elem *tail = heap_get_index(heap, heap->size);
         if (tail == tail->parent->left) {
             tail->parent->left = NULL;
@@ -187,6 +189,8 @@ inline size_t heap_size(struct heap *heap) {
 inline bool heap_empty(struct heap *heap) {
     return heap->size == 0;
 }
+
+
 
 
 
