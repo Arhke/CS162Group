@@ -8,8 +8,7 @@
 #include "threads/synch.h"
 #include "threads/fixed-point.h"
 
-
-static struct heap prio_ready_heap;
+extern struct heap prio_ready_heap;
 
 /* States in a thread's life cycle. */
 enum thread_status {

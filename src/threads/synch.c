@@ -167,6 +167,7 @@ void lock_refresh_donors(struct lock *lock) {
 void lock_init(struct lock* lock) {
     ASSERT(lock != NULL);
     lock->holder = NULL;
+    lock->elem.key = 0;
     heap_init(&lock->waiters);
 }
 
@@ -249,6 +250,7 @@ void lock_release(struct lock* lock) {
     if (!heap_empty(&lock->waiters)) {
         thread_unblock(heap_entry(heap_pop_max(&lock->waiters), struct thread, heap_elem));
     }
+
     if (heap_empty(&lock->waiters)) {
         lock->elem.key = 0;
     } else {

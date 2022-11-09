@@ -25,6 +25,7 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list fifo_ready_list;
+struct heap prio_ready_heap;
 
 /* Global ordered list of sleeping threads used by timer_sleep. */
 struct list sleep_queue;
@@ -735,7 +736,7 @@ void thread_refresh_priority(struct thread *t) {
     } else {
         t->heap_elem.key = new_effective_priority;
     }
-    
+
     if (t->waiting_lock != NULL) {
         lock_refresh_donors(t->waiting_lock);
     }
