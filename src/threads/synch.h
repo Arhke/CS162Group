@@ -8,7 +8,7 @@
 /* A counting semaphore. */
 struct semaphore {
     unsigned value;      /* Current value. */
-    struct list waiters; /* List of waiting threads. */
+    struct heap waiters; /* List of waiting threads. */
 };
 
 
@@ -54,7 +54,7 @@ bool lock_held_by_current_thread(const struct lock*);
 
 /* Condition variable. */
 struct condition {
-    struct list waiters; /* List of waiting threads. */
+    struct heap waiters; /* List of waiting threads. */
 };
 
 void cond_init(struct condition*);

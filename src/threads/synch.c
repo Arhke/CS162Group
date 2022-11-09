@@ -40,7 +40,7 @@ void sema_init(struct semaphore* sema, unsigned value) {
     ASSERT(sema != NULL);
 
     sema->value = value;
-    list_init(&sema->waiters);
+    heap_init(&sema->waiters);
 }
 
 /* Down or "P" operation on a semaphore.  Waits for SEMA's value
@@ -57,7 +57,7 @@ void sema_down(struct semaphore* sema) {
 
     old_level = intr_disable();
     while (sema->value == 0) {
-        list_push_back(&sema->waiters, &thread_current()->elem);
+        heap_insert(&sema->waiters, &thread_current()->heap_elem);
         thread_block();
     }
     sema->value--;
@@ -94,10 +94,16 @@ void sema_up(struct semaphore* sema) {
     ASSERT(sema != NULL);
 
     old_level = intr_disable();
-    if (!list_empty(&sema->waiters))
-        thread_unblock(list_entry(list_pop_front(&sema->waiters), struct thread, elem));
+    if (!heap_empty(&sema->waiters))
+        thread_unblock(heap_entry(heap_pop_max(&sema->waiters), struct thread, heap_elem));
     sema->value++;
-    intr_set_level(old_level);
+    
+    if (!intr_context() && !heap_empty(&prio_ready_heap) && thread_current()->effective_priority < heap_max(&prio_ready_heap)->key) {
+        intr_set_level(old_level);
+        thread_yield();
+    } else {
+        intr_set_level(old_level);
+    }
 }
 
 static void sema_test_helper(void* sema_);
@@ -336,7 +342,7 @@ void rw_lock_release(struct rw_lock* rw_lock, bool reader) {
 
 /* One semaphore in a list. */
 struct semaphore_elem {
-    struct list_elem elem;      /* List element. */
+    struct heap_elem elem;      /* List element. */
     struct semaphore semaphore; /* This semaphore. */
 };
 
@@ -346,7 +352,7 @@ struct semaphore_elem {
 void cond_init(struct condition* cond) {
     ASSERT(cond != NULL);
 
-    list_init(&cond->waiters);
+    heap_init(&cond->waiters);
 }
 
 /* Atomically releases LOCK and waits for COND to be signaled by
@@ -375,7 +381,7 @@ void cond_wait(struct condition* cond, struct lock* lock) {
     ASSERT(lock_held_by_current_thread(lock));
 
     sema_init(&waiter.semaphore, 0);
-    list_push_back(&cond->waiters, &waiter.elem);
+    heap_insert(&cond->waiters, &waiter.elem);
     lock_release(lock);
     sema_down(&waiter.semaphore);
     lock_acquire(lock);
@@ -393,8 +399,12 @@ void cond_signal(struct condition* cond, struct lock* lock UNUSED) {
     ASSERT(!intr_context());
     ASSERT(lock_held_by_current_thread(lock));
 
-    if (!list_empty(&cond->waiters))
-        sema_up(&list_entry(list_pop_front(&cond->waiters), struct semaphore_elem, elem)->semaphore);
+    if (!heap_empty(&cond->waiters))
+        sema_up(&heap_entry(heap_pop_max(&cond->waiters), struct semaphore_elem, elem)->semaphore);
+
+    if (!heap_empty(&prio_ready_heap) && thread_current()->effective_priority < heap_max(&prio_ready_heap)->key) {
+        thread_yield();
+    }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
@@ -406,6 +416,6 @@ void cond_broadcast(struct condition* cond, struct lock* lock) {
     ASSERT(cond != NULL);
     ASSERT(lock != NULL);
 
-    while (!list_empty(&cond->waiters))
+    while (!heap_empty(&cond->waiters))
         cond_signal(cond, lock);
 }
