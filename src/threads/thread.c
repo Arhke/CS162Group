@@ -343,24 +343,25 @@ void thread_exit(void) {
     intr_disable();
 
     list_remove(&tc->allelem);
-    if (tc->current_heap != NULL) {
-        heap_remove(tc->current_heap, &tc->heap_elem);
-    }
     while (!heap_empty(&tc->held_locks)) {
         lock_release(heap_entry(heap_max(&tc->held_locks), struct lock, elem));
     }
 
     if (p != NULL) {
+        /* Remove the mapping for this thread's stack so it is available to future threads. */
         if (p->pagedir != NULL && tc->stack_slot != NULL) {
             palloc_free_page(pagedir_get_page(p->pagedir, tc->stack_slot - PGSIZE));
             pagedir_clear_page(p->pagedir, tc->stack_slot - PGSIZE);
         }
 
+        /* The lock needs to be acquired to ensure proper synchronization. The last thread to exit frees the PCB,
+            all associated structs, and destroys the page directory. */
         lock_acquire(&p->active_threads_lock);
             list_remove(&tc->process_elem);
 
             if (list_empty(&p->active_threads)) {
                 struct list_elem *e;
+                /* Free thread data used for joining. */
                 lock_acquire(&p->thread_data_lock);
                     while (!list_empty(&p->thread_data)) {
                         e = list_pop_front(&p->thread_data);
@@ -368,6 +369,7 @@ void thread_exit(void) {
                     }
                 lock_release(&p->thread_data_lock);
 
+                /* Free all locks initialized to this process. */
                 lock_acquire(&p->process_locks_lock);
                     while (!list_empty(&p->process_locks)) {
                         e = list_pop_front(&p->process_locks);
@@ -375,6 +377,7 @@ void thread_exit(void) {
                     }
                 lock_release(&p->process_locks_lock);
 
+                /* Free all semaphores initialized to this process. */
                 lock_acquire(&p->process_semas_lock);
                     while (!list_empty(&p->process_semas)) {
                         e = list_pop_front(&p->process_semas);
@@ -383,9 +386,9 @@ void thread_exit(void) {
                 lock_release(&p->process_semas_lock);
 
                 lock_release(&p->active_threads_lock);
+
                 /* Destroy the current process's page directory and switch back
                     to the kernel-only page directory. */
-
                 uint32_t* pd = p->pagedir;
                 if (pd != NULL) {
                     /* Correct ordering here is crucial.  We must set
@@ -408,6 +411,8 @@ void thread_exit(void) {
                 free(p);
             } else {
                 lock_release(&p->active_threads_lock);
+                
+                /* Up the semaphore to alert any joining thread of exit completion. */
                 sema_up(&tc->data->join_sema);
             }
     }
@@ -456,16 +461,14 @@ void thread_foreach(thread_action_func* func, void* aux) {
 void thread_set_priority(int new_priority) {
     struct thread *tc = thread_current();
     tc->priority = new_priority;
-    /*
-    if (heap_empty(&tc->held_locks)) {
-        tc->effective_priority = new_priority;
-    } else {
-        tc->effective_priority = max(new_priority, heap_max(&tc->held_locks)->key);
-    } */
 
     enum intr_level old_level = intr_disable();
+
+    /* Refreshes this thread's priority and all threads and locks higher up the chain as a result of
+        the change in base priority. */
     thread_refresh_priority(thread_current());
 
+    /* If the highest ready thread is of higher priority, then yield. */
     if (!heap_empty(&prio_ready_heap) && thread_current()->effective_priority < heap_max(&prio_ready_heap)->key) {
         intr_set_level(old_level);
         thread_yield();
@@ -721,6 +724,10 @@ static tid_t allocate_tid(void) {
     return tid;
 }
 
+
+/* Updates this thread's effective priority as a result of change in either donated priorities or
+    base priority. Recursively refreshes the max donating priority of any lock it is waiting on,
+    and the thread holding that lock thereoff. */
 void thread_refresh_priority(struct thread *t) {
     int old_effective_priority = t->effective_priority, new_effective_priority;
 

@@ -12,6 +12,7 @@ struct semaphore {
 };
 
 
+/* A struct containing a semaphore that allows us to match with a userspace address. */
 struct userspace_sema_container {
     struct semaphore sema;
     void *userspace_addr;
@@ -25,10 +26,6 @@ bool sema_try_down(struct semaphore*);
 void sema_up(struct semaphore*);
 void sema_self_test(void);
 
-enum lock_status {
-    UNLOCKED,
-    LOCKED
-};
 
 /* Lock. */
 struct lock {
@@ -38,6 +35,7 @@ struct lock {
 };
 
 
+/* A struct containing a lock that allows us to match with a userspace address. */
 struct userspace_lock_container {
     struct lock lock;
     void *userspace_addr;

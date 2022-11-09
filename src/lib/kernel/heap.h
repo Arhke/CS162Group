@@ -10,13 +10,15 @@
 
 /* Heap element. */
 struct heap_elem {
-    int key;
+    int key;                    /* Key used to compare elem. */
+    int time_stamp;             /* Time at which elem is inserted into the heap. */
     struct heap_elem *parent, *left, *right;
 };
 
 /* Heap. */
 struct heap {
     struct heap_elem *root;     /* Array of elements for array heap implementation */
+    int clock;                  /* Clock that marks when elems are inserted into the heap to preserve FIFO order. */
     size_t size;                /* Size of heap */
 };
 
@@ -35,7 +37,6 @@ void heap_insert(struct heap *, struct heap_elem *);
 /* Heap removal. */
 struct heap_elem *heap_pop_max(struct heap *);
 void heap_remove(struct heap *, struct heap_elem *);
-void heap_replace(struct heap *, struct heap_elem *, struct heap_elem *);
 
 /* Heap update. */
 void heap_updateKey(struct heap *, struct heap_elem *, int);

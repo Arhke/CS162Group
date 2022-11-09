@@ -322,12 +322,13 @@ void process_exit(int exit_code) {
     file_close(cur->executable);
 
 
-
     /* Project 2 Threads. */
-
     ASSERT(!intr_context());
     enum intr_level old_level = intr_disable();
 
+    /* Marks a variable alerting all threads that they should exit instead of returning to user mode. Must
+        be done with interrupts disabled so all threads properly get the notification and do not accidentally
+        return to user mode before the update. */
     cur->forced_exit = true;
 
     intr_set_level(old_level);
@@ -758,6 +759,7 @@ pid_t get_pid(struct process* p) { return (pid_t)p->main_thread->tid; }
    now, it does nothing. You may find it necessary to change the
    function signature. */
 bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), void** esp) {
+    /* We need to activate the PTBR so that the new kernel to user page mapping goes to the correct process. */
     process_activate();
 
     void *kpage = palloc_get_page(PAL_USER | PAL_ZERO);
@@ -770,7 +772,7 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
         lock_acquire(&pcb->active_threads_lock);
         struct list_elem *e;
         for (e = list_begin(&pcb->active_threads); e != list_end(&pcb->active_threads); e = list_next(e)) {
-            /* Iterate through thread_data until find an open stack slot */
+            /* Iterate through active threads until find an open stack slot */
             struct thread *t = list_entry(e, struct thread, process_elem);
             if (t->stack_slot < open_stack_slot) {
                 break;
@@ -794,6 +796,7 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
                 list_push_back(&pcb->thread_data, &td->elem);
             lock_release(&pcb->thread_data_lock);
 
+            /* Compute the memory requirements. This is static at 20 but use variables just to be safe. */
             uint32_t memreq = sizeof(tf) + sizeof(arg);
             uint32_t padding = -memreq & 0xF;
             memreq += (padding + 4);
@@ -826,6 +829,8 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
 tid_t pthread_execute(stub_fun sf, pthread_fun tf, void* arg) {
     struct thread *tc = thread_current();
 
+    /* Store the necessary arguments to start_pthread in a single array. Thread current is needed to
+        match the new thread's PCB, and to alert the parent thread of success. */
     void *start_pthread_args[4];
     start_pthread_args[0] = sf;
     start_pthread_args[1] = tf;
@@ -836,6 +841,7 @@ tid_t pthread_execute(stub_fun sf, pthread_fun tf, void* arg) {
     if (tid == TID_ERROR) {
         return TID_ERROR;
     } else {
+        /* Wait for the result of intializing the new thread's stack. */
         sema_down(&tc->start_pthread_sema);
         if (tc->start_pthread_success) {
             return tid;
@@ -857,6 +863,8 @@ static void start_pthread(void* start_pthread_args) {
     void *arg = ((void **) start_pthread_args)[2];
 
     struct thread *parent_thread = (struct thread *) ((void **) start_pthread_args)[3];
+
+    /* Set the new thread's PCB to match the parent thread's PCB. */
     thread_current()->pcb = parent_thread->pcb;
 
     struct intr_frame if_;
@@ -866,6 +874,8 @@ static void start_pthread(void* start_pthread_args) {
     if_.eflags = FLAG_IF | FLAG_MBS;
     bool success = setup_thread(sf, tf, arg, &if_.eip, &if_.esp);
 
+    /* Alert the parent of success or failure, by marking the variable and upping the semaphore. If
+        the initialization failed, then exit after upping. */
     if (!success) {
         parent_thread->start_pthread_success = false;
         sema_up(&parent_thread->start_pthread_sema);
@@ -894,16 +904,24 @@ tid_t pthread_join(tid_t tid) {
 
         struct thread_data *td;
         struct list_elem *e;
+
+        /* Acquire the lock to prevent concurrent modification/iteration. */
         lock_acquire(&p->thread_data_lock);
+            /* Iterates through the list of available data. If not present, then either an invalid TID was given,
+                or the requested TID has already been joined on and removed. */
             for (e = list_begin(&p->thread_data); e != list_end(&p->thread_data); e = list_next(e)) {
                 td = list_entry(e, struct thread_data, elem);
                 if (td->tid == tid) {
+                    /* Critically, must remove before releasing the lock or else other threads might be able
+                        to join on the data. */
                     list_remove(e);
                     lock_release(&p->thread_data_lock);
 
                     sema_down(&td->join_sema);
+
+                    /* The joining thread always frees. */
                     free(td);
-                    
+
                     return tid;
                 }
             }
@@ -935,6 +953,11 @@ void pthread_exit(void) {
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
 void pthread_exit_main(void) {
+    /* Critically, the join semaphore must also be upped here because the main's "exit" is here, and not
+        at the end of the actual thread_exit. We will deadlock if any thread joining on main waits for even
+        its exit to run to completion. Since each thread can only be joined on once, there is no problem if
+        we up the semaphore twice, once preemptively to alert joining threads that main is done, and once
+        again for all threads in general in thread_exit(). */
     sema_up(&thread_current()->data->join_sema);
 
     struct process *p = thread_current()->pcb;
