@@ -620,8 +620,7 @@ static bool load_segment(struct file* file, off_t ofs, uint8_t* upage, uint32_t 
     return true;
 }
 
-/* Create a minimal stack by mapping a zeroed page at the top of
-   user virtual memory. */
+/* Create a minimal stack by mapping a zeroed page at the top of user virtual memory. */
 static bool setup_stack(void **esp, const char *file_name) {
     uint8_t* kpage;
     bool success = false;
