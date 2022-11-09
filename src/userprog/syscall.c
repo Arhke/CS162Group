@@ -15,9 +15,9 @@
 
 
 /* Argument validation macros: In order for a pointer to be valid, must be below PHYS_BASE
-    and have a mapping in the page directory */
+    and have a mapping in the page directory. */
 
-/* Validates n bytes of space starting at ptr by validating the start and end addresses */
+/* Validates n bytes of space starting at ptr by validating the start and end addresses. */
 
 
 bool is_valid_user_vaddr(void *ptr) {
