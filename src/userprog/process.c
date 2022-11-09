@@ -895,7 +895,6 @@ static void start_pthread(void* start_pthread_args) {
 
    This function will be implemented in Project 2: Multithreading. For
    now, it does nothing. */
-
 tid_t pthread_join(tid_t tid) {
     struct thread *tc = thread_current();
     if (tc->tid != tid) {
