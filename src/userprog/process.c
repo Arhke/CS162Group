@@ -823,7 +823,7 @@ bool setup_thread(stub_fun sf, pthread_fun tf, void *arg, void (**eip)(void), vo
    be created properly.
 
    This function will be implemented in Project 2: Multithreading and
-   should be similar to process_execute (). For now, it does nothing. */
+   should be similar to process_execute(). For now, it does nothing. */
 tid_t pthread_execute(stub_fun sf, pthread_fun tf, void* arg) {
     struct thread *tc = thread_current();
 
