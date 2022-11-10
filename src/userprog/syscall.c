@@ -15,9 +15,9 @@
 
 
 /* Argument validation macros: In order for a pointer to be valid, must be below PHYS_BASE
-    and have a mapping in the page directory */
+    and have a mapping in the page directory. */
 
-/* Validates n bytes of space starting at ptr by validating the start and end addresses */
+/* Validates n bytes of space starting at ptr by validating the start and end addresses. */
 
 
 bool is_valid_user_vaddr(void *ptr) {
@@ -325,16 +325,20 @@ static void syscall_handler(struct intr_frame *f) {
         case SYS_LOCK_INIT:
             validate_space(f, args, 2 * sizeof(uint32_t));
 
+            /* The provided address must point to valid userspace or else the syscall fails. */
             if (!is_valid_user_vaddr(args[1])) {
                 f->eax = false;
             } else {
+                /* Allocate space for a new kernel lock to userspace lock mapping. */
                 ulc = malloc(sizeof(struct userspace_lock_container));
                 if (ulc == NULL) {
                     f->eax = false;
                 } else {
+                    /* Initialize the kernel lock and map it to the userspace address. */
                     lock_init(&ulc->lock);
                     ulc->userspace_addr = (void *) args[1];
 
+                    /* Add the new mapping to the list of process locks. */
                     lock_acquire(&pcb->process_locks_lock);
                         list_push_back(&pcb->process_locks, &ulc->elem);
                     lock_release(&pcb->process_locks_lock);
@@ -346,12 +350,14 @@ static void syscall_handler(struct intr_frame *f) {
         case SYS_LOCK_ACQUIRE:
             validate_space(f, args, 2 * sizeof(uint32_t));
 
+            /* The provided address must point to valid userspace or else the syscall fails. */
             if (!is_valid_user_vaddr(args[1])) {
                 f->eax = false;
             } else {
                 e = list_begin(&pcb->process_locks);
 
                 lock_acquire(&pcb->process_locks_lock);
+                    /* Iterate through the list of process locks while searching for a matching userspace address. */
                     while (e != list_end(&pcb->process_locks)) {
                         ulc = list_entry(e, struct userspace_lock_container, elem);
                         if (ulc->userspace_addr == (void *) args[1]) {
@@ -361,9 +367,10 @@ static void syscall_handler(struct intr_frame *f) {
                     }
                 lock_release(&pcb->process_locks_lock);
                 
+                /* Once a matching kernel lock is found, check the cases. If no match exists or lock is already held,
+                    then fails, else succeeds. */
                 if (e == list_end(&pcb->process_locks) || ulc->lock.holder == thread_current()) {
                     f->eax = false;
-                    process_exit(1);
                 } else {
                     lock_acquire(&ulc->lock);
                     f->eax = true;
@@ -374,12 +381,14 @@ static void syscall_handler(struct intr_frame *f) {
         case SYS_LOCK_RELEASE:
             validate_space(f, args, 2 * sizeof(uint32_t));
 
+            /* The provided address must point to valid userspace or else the syscall fails. */
             if (!is_valid_user_vaddr(args[1])) {
                 f->eax = false;
             } else {
                 e = list_begin(&pcb->process_locks);
 
                 lock_acquire(&pcb->process_locks_lock);
+                    /* Iterate through the list of process locks while searching for a matching userspace address. */
                     while (e != list_end(&pcb->process_locks)) {
                         ulc = list_entry(e, struct userspace_lock_container, elem);
                         if (ulc->userspace_addr == (void *) args[1]) {
@@ -389,6 +398,8 @@ static void syscall_handler(struct intr_frame *f) {
                     }
                 lock_release(&pcb->process_locks_lock);
                 
+                /* Once a matching kernel lock is found, check the cases. If no match exists or lock not already held,
+                    then fails, else succeeds. */
                 if (e == list_end(&pcb->process_locks) || ulc->lock.holder != thread_current()) {
                     f->eax = false;
                 } else {
@@ -401,16 +412,20 @@ static void syscall_handler(struct intr_frame *f) {
         case SYS_SEMA_INIT:
             validate_space(f, args, 3 * sizeof(uint32_t));
 
+            /* The provided address must point to valid userspace or else the syscall fails. */
             if (!is_valid_user_vaddr(args[1]) || (int) args[2] < 0) {
                 f->eax = false;
             } else {
+                /* Allocate space for a new kernel semaphore to userspace semaphore mapping. */
                 usc = malloc(sizeof(struct userspace_sema_container));
                 if (usc == NULL) {
                     f->eax = false;
                 } else {
+                    /* Initialize the kernel semaphore and map it to the userspace address. */
                     sema_init(&usc->sema, args[2]);
                     usc->userspace_addr = (void *) args[1];
 
+                    /* Add the new mapping to the list of process semaphores. */
                     lock_acquire(&pcb->process_semas_lock);
                         list_push_back(&pcb->process_semas, &usc->elem);
                     lock_release(&pcb->process_semas_lock);
@@ -422,12 +437,14 @@ static void syscall_handler(struct intr_frame *f) {
         case SYS_SEMA_DOWN:
             validate_space(f, args, 2 * sizeof(uint32_t));
 
+            /* The provided address must point to valid userspace or else the syscall fails. */
             if (!is_valid_user_vaddr(args[1])) {
                 f->eax = false;
             } else {
                 e = list_begin(&pcb->process_semas);
 
                 lock_acquire(&pcb->process_semas_lock);
+                    /* Iterate through the list of process semaphores while searching for a matching userspace address. */
                     while (e != list_end(&pcb->process_semas)) {
                         usc = list_entry(e, struct userspace_sema_container, elem);
                         if (usc->userspace_addr == (void *) args[1]) {
@@ -437,6 +454,8 @@ static void syscall_handler(struct intr_frame *f) {
                     }
                 lock_release(&pcb->process_semas_lock);
                 
+                /* Once a matching kernel lock is found, check the cases. If no match exists,
+                    then fails, else succeeds. */
                 if (e == list_end(&pcb->process_semas)) {
                     f->eax = false;
                 } else {
@@ -449,12 +468,14 @@ static void syscall_handler(struct intr_frame *f) {
         case SYS_SEMA_UP:
             validate_space(f, args, 2 * sizeof(uint32_t));
 
+            /* The provided address must point to valid userspace or else the syscall fails. */
             if (!is_valid_user_vaddr(args[1])) {
                 f->eax = false;
             } else {
                 e = list_begin(&pcb->process_semas);
 
                 lock_acquire(&pcb->process_semas_lock);
+                    /* Iterate through the list of process semaphores while searching for a matching userspace address. */
                     while (e != list_end(&pcb->process_semas)) {
                         usc = list_entry(e, struct userspace_sema_container, elem);
                         if (usc->userspace_addr == (void *) args[1]) {
@@ -464,6 +485,8 @@ static void syscall_handler(struct intr_frame *f) {
                     }
                 lock_release(&pcb->process_semas_lock);
                 
+                /* Once a matching kernel lock is found, check the cases. If no match exists,
+                    then fails, else succeeds. */
                 if (e == list_end(&pcb->process_semas)) {
                     f->eax = false;
                 } else {
@@ -474,11 +497,13 @@ static void syscall_handler(struct intr_frame *f) {
 
             break;
         case SYS_GET_TID:
+            /* Nothing fancy, literally just return the TID. */
             f->eax = thread_current()->tid;
 
             break;
     }
-
+    /* If this is marked true, then some thread has made the exit syscall and declared that the the process should
+        terminate. All threads should be terminated if they try to go back to user mode. */
     if (pcb->forced_exit) {
         thread_exit();
     }

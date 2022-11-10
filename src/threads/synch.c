@@ -40,7 +40,7 @@ void sema_init(struct semaphore* sema, unsigned value) {
     ASSERT(sema != NULL);
 
     sema->value = value;
-    list_init(&sema->waiters);
+    heap_init(&sema->waiters);
 }
 
 /* Down or "P" operation on a semaphore.  Waits for SEMA's value
@@ -57,10 +57,17 @@ void sema_down(struct semaphore* sema) {
 
     old_level = intr_disable();
     while (sema->value == 0) {
-        list_push_back(&sema->waiters, &thread_current()->elem);
+        /* Add this thread to the heap of semaphore waiters. */
+        heap_insert(&sema->waiters, &thread_current()->heap_elem);
+
+        /* Set the current heap that this thread resides on to the waiters heap. */
+        thread_current()->current_heap = &sema->waiters;
+
         thread_block();
     }
     sema->value--;
+    thread_current()->current_heap = NULL;
+
     intr_set_level(old_level);
 }
 
@@ -94,10 +101,17 @@ void sema_up(struct semaphore* sema) {
     ASSERT(sema != NULL);
 
     old_level = intr_disable();
-    if (!list_empty(&sema->waiters))
-        thread_unblock(list_entry(list_pop_front(&sema->waiters), struct thread, elem));
+    if (!heap_empty(&sema->waiters))
+        thread_unblock(heap_entry(heap_pop_max(&sema->waiters), struct thread, heap_elem));
     sema->value++;
-    intr_set_level(old_level);
+    
+    /* If the highest ready thread is of higher priority, then yield. */
+    if (!intr_context() && !heap_empty(&prio_ready_heap) && thread_current()->effective_priority < heap_max(&prio_ready_heap)->key) {
+        intr_set_level(old_level);
+        thread_yield();
+    } else {
+        intr_set_level(old_level);
+    }
 }
 
 static void sema_test_helper(void* sema_);
@@ -167,6 +181,7 @@ void lock_refresh_donors(struct lock *lock) {
 void lock_init(struct lock* lock) {
     ASSERT(lock != NULL);
     lock->holder = NULL;
+    lock->elem.key = 0;
     heap_init(&lock->waiters);
 }
 
@@ -186,16 +201,22 @@ void lock_acquire(struct lock* lock) {
 
     old_level = intr_disable();
     while (lock->holder != NULL) {
+        /* Add current threaad to list of waiters, set the current heap to the waiters heap, and mark the waiting lock. */
         heap_insert(&lock->waiters, &thread_current()->heap_elem);
+        thread_current()->current_heap = &lock->waiters;
         thread_current()->waiting_lock = lock;
 
+        /* Refresh the lock's maximum donated priority, and any changes in effective priority higher up. */
         lock_refresh_donors(lock);
         thread_block();
     }
     
+    /* Now that the lock has been acquired, set holder to current, and mark current heap and waiting lock to NULL. */
     lock->holder = thread_current();
+    thread_current()->current_heap = NULL;
     thread_current()->waiting_lock = NULL;
 
+    /* Add lock to list of held locks, and refresh effective priority as a result of acquiring the lock. */
     heap_insert(&thread_current()->held_locks, &lock->elem);
     thread_refresh_priority(thread_current());
 
@@ -219,10 +240,11 @@ bool lock_try_acquire(struct lock* lock) {
     if (lock->holder != NULL) {
         success = false;
     } else {
+        /* If the lock is not currently held, set the new holder, and add the lock to list of held locks. */
         lock->holder = thread_current();
-        thread_current()->waiting_lock = NULL;
-
         heap_insert(&thread_current()->held_locks, &lock->elem);
+
+        /* Update the effective priority of threads and threads higher up to reflect new effective priority. */
         thread_refresh_priority(thread_current());
         success = true;
     }
@@ -243,20 +265,26 @@ void lock_release(struct lock* lock) {
 
     old_level = intr_disable();
 
+    /* Once the lock is released, the lock is no longer on the heap of held locks. */
     lock->holder = NULL;
     heap_remove(&thread_current()->held_locks, &lock->elem);
 
     if (!heap_empty(&lock->waiters)) {
+        /* Unblock the next thread to be run. */
         thread_unblock(heap_entry(heap_pop_max(&lock->waiters), struct thread, heap_elem));
     }
+
+    /* Update the lock's key to match the maximum donated priority. */
     if (heap_empty(&lock->waiters)) {
         lock->elem.key = 0;
     } else {
         lock->elem.key = heap_max(&lock->waiters)->key;
     }
 
+    /* Update the effective priority of threads and threads higher up to reflect new effective priority. */
     thread_refresh_priority(thread_current());
 
+    /* If the highest ready thread is of higher priority, then yield. */
     if (!heap_empty(&prio_ready_heap) && thread_current()->effective_priority < heap_max(&prio_ready_heap)->key) {
         intr_set_level(old_level);
         thread_yield();
@@ -326,17 +354,12 @@ void rw_lock_release(struct rw_lock* rw_lock, bool reader) {
             cond_signal(&rw_lock->write, &rw_lock->lock);
         else if (rw_lock->WR > 0)
             cond_broadcast(&rw_lock->read, &rw_lock->lock);
-  }
+    }
 
     // Release guard lock
     lock_release(&rw_lock->lock);
 }
 
-/* One semaphore in a list. */
-struct semaphore_elem {
-    struct list_elem elem;      /* List element. */
-    struct semaphore semaphore; /* This semaphore. */
-};
 
 /* Initializes condition variable COND.  A condition variable
    allows one piece of code to signal a condition and cooperating
@@ -344,7 +367,7 @@ struct semaphore_elem {
 void cond_init(struct condition* cond) {
     ASSERT(cond != NULL);
 
-    list_init(&cond->waiters);
+    heap_init(&cond->waiters);
 }
 
 /* Atomically releases LOCK and waits for COND to be signaled by
@@ -365,18 +388,27 @@ void cond_init(struct condition* cond) {
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
 void cond_wait(struct condition* cond, struct lock* lock) {
-    struct semaphore_elem waiter;
+    enum intr_level old_level;
 
     ASSERT(cond != NULL);
     ASSERT(lock != NULL);
     ASSERT(!intr_context());
     ASSERT(lock_held_by_current_thread(lock));
 
-    sema_init(&waiter.semaphore, 0);
-    list_push_back(&cond->waiters, &waiter.elem);
+    old_level = intr_disable();
+
+    /* Add the current thread to the list of waiters and set the current heap variable. */
+    heap_insert(&cond->waiters, &thread_current()->heap_elem);
+    thread_current()->current_heap = &cond->waiters;
+
     lock_release(lock);
-    sema_down(&waiter.semaphore);
+    thread_block();
     lock_acquire(lock);
+
+    /* Since the current thread is now running again, set the current heap to NULL. */
+    thread_current()->current_heap = NULL;
+
+    intr_set_level(old_level);
 }
 
 /* If any threads are waiting on COND (protected by LOCK), then
@@ -386,13 +418,25 @@ void cond_wait(struct condition* cond, struct lock* lock) {
    make sense to try to signal a condition variable within an
    interrupt handler. */
 void cond_signal(struct condition* cond, struct lock* lock UNUSED) {
+    enum intr_level old_level;
+
     ASSERT(cond != NULL);
     ASSERT(lock != NULL);
     ASSERT(!intr_context());
     ASSERT(lock_held_by_current_thread(lock));
 
-    if (!list_empty(&cond->waiters))
-        sema_up(&list_entry(list_pop_front(&cond->waiters), struct semaphore_elem, elem)->semaphore);
+    old_level = intr_disable();
+    if (!heap_empty(&cond->waiters))
+        /* Unblock the next thread to be run. */
+        thread_unblock(heap_entry(heap_pop_max(&cond->waiters), struct thread, heap_elem));
+
+    /* If the highest ready thread is of higher priority, then yield. */
+    if (!heap_empty(&prio_ready_heap) && thread_current()->effective_priority < heap_max(&prio_ready_heap)->key) {
+        thread_yield();
+        intr_set_level(old_level);
+    } else {
+        intr_set_level(old_level);
+    }
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by
@@ -404,6 +448,6 @@ void cond_broadcast(struct condition* cond, struct lock* lock) {
     ASSERT(cond != NULL);
     ASSERT(lock != NULL);
 
-    while (!list_empty(&cond->waiters))
+    while (!heap_empty(&cond->waiters))
         cond_signal(cond, lock);
 }

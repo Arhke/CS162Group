@@ -15,7 +15,7 @@ int highestBit(int n) {
 
 /* Initializes HEAP as empty heap. */
 void heap_init(struct heap *heap) {
-    *heap = (struct heap) {NULL, NULL, 0};
+    *heap = (struct heap) {NULL, 0, 0};
 }
 
 /* Returns the maximum element in the heap without removing. */
@@ -44,8 +44,12 @@ struct heap_elem *heap_get_index(struct heap *heap, int index) {
 
 void heap_substitute(struct heap *heap, struct heap_elem *old_elem, struct heap_elem *new_elem) {
     int new_key = new_elem->key;
+    int new_timestamp = new_elem->time_stamp;
+
     *new_elem = *old_elem;
+
     new_elem->key = new_key;
+    new_elem->time_stamp = new_timestamp;
 
     if (old_elem->left != NULL) {
         old_elem->left->parent = new_elem;
@@ -78,7 +82,8 @@ void heap_swap_parent(struct heap *heap, struct heap_elem *elem) {
 /* Iteratively swaps the element at index with its parent until
     the element is in its correct position. */
 void heap_float(struct heap *heap, struct heap_elem *elem) {
-    while (elem->parent != NULL && elem->key > elem->parent->key) {
+    while (elem->parent != NULL && (elem->key > elem->parent->key ||
+            (elem->key == elem->parent->key && elem->time_stamp < elem->parent->time_stamp))) {
         heap_swap_parent(heap, elem);
     }
 }
@@ -88,10 +93,11 @@ void heap_float(struct heap *heap, struct heap_elem *elem) {
 void heap_sink(struct heap *heap, struct heap_elem *elem) {
     while (elem->left != NULL || elem->right != NULL) {
         struct heap_elem *max_child = elem->left;
-        if (elem->right != NULL && elem->right->key > elem->left->key) {
+        if (elem->right != NULL && (elem->right->key > elem->left->key ||
+                (elem->right->key == elem->left->key && elem->right->time_stamp < elem->left->time_stamp))) {
             max_child = elem->right;
         }
-        if (elem->key < max_child->key) {
+        if (elem->key < max_child->key || (elem->key == max_child->key && elem->time_stamp > max_child->time_stamp)) {
             heap_swap_parent(heap, max_child);
         } else {
             break;
@@ -103,6 +109,8 @@ void heap_sink(struct heap *heap, struct heap_elem *elem) {
 void heap_insert(struct heap *heap, struct heap_elem *elem) {
     elem->left = NULL;
     elem->right = NULL;
+    elem->time_stamp = heap->clock++;
+
     if (heap->size == 0) {
         elem->parent = NULL;
         heap->root = elem;
@@ -161,15 +169,6 @@ void heap_remove(struct heap *heap, struct heap_elem *elem) {
         }
         heap->size--;
     }
-}
-
-/* Replaces first elem in the heap with second elem. Written as
-    a more efficient alternative to heap_pop_max -> heap_insert. */
-void heap_replace(struct heap *heap, struct heap_elem *old_elem, struct heap_elem *new_elem) {
-    int old_key = old_elem->key, new_key = new_elem->key;
-    heap_substitute(heap, old_elem, new_elem);
-    heap_sink(heap, new_elem);
-    heap_float(heap, new_elem);
 }
 
 /* Updates key of element to the given key, either by floating
