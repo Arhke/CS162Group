@@ -46,6 +46,8 @@ bool setup_pcb(void) {
     if (success) {
         /* Initialize parent-child data in process */
         list_init(&p->child_processes);
+        lock_init(&p->child_processes_lock);
+
         sema_init(&p->start_process_sema, 0);
         sema_init(&p->wait_sema, 0);
 
@@ -227,16 +229,21 @@ int process_wait(pid_t child_pid) {
         list of children to check if a child PID. The first time wait is called, the child is
         removed after the exit code is acquired so child missing covers both cases of child_pid
         not a child and wait already called. */
-    struct list_elem *e = list_begin(&parent->child_processes);
     child_data_t *cd;
+    lock_acquire(&parent->child_processes_lock);
+    struct list_elem *e = list_begin(&parent->child_processes);
     while (e != list_end(&parent->child_processes) && (cd = list_entry(e, child_data_t, elem))->pid != child_pid) {
         e = list_next(e);
     }
 
     /* If child_pid is not present in list of children then error */
     if (e == list_end(&parent->child_processes)) {
+        lock_release(&parent->child_processes_lock);
         return -1;
     } else {
+        list_remove(e);
+        lock_release(&parent->child_processes_lock);
+
         lock_acquire(&cd->elem_modification_lock);
         if (cd->has_exited) {
             /* If child already exited, no contest for modification of list element, can read
@@ -251,7 +258,6 @@ int process_wait(pid_t child_pid) {
         int result = cd->exit_code;
 
         /* On the first call to wait, remove the child from the list so wait cannot be called twice */
-        list_remove(e);
         free(cd);
 
         return result;

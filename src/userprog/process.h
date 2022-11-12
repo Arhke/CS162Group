@@ -48,7 +48,9 @@ struct process {
 
     /* Project 1 User Programs. */
     struct process *parent_process;             /* Pointer to parent process */
+
     struct list child_processes;                /* List of struct child_data shared with child processes */
+    struct lock child_processes_lock;
 
     struct child_data *start_process_result;    /* The child_data of the result of process_execute, NULL if start_process fails*/
     struct semaphore start_process_sema;        /* Semaphore that ensures child PCB is initialized before parent finishes exec */
