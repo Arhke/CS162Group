@@ -3,22 +3,12 @@
 
 #include <list.h>
 #include <stdbool.h>
-#include "lib/kernel/heap.h"
 
 /* A counting semaphore. */
 struct semaphore {
-    unsigned value;      /* Current value. */
-    struct heap waiters; /* List of waiting threads. */
+  unsigned value;      /* Current value. */
+  struct list waiters; /* List of waiting threads. */
 };
-
-
-/* A struct containing a semaphore that allows us to match with a userspace address. */
-struct userspace_sema_container {
-    struct semaphore sema;
-    void *userspace_addr;
-    struct list_elem elem;
-};
-
 
 void sema_init(struct semaphore*, unsigned value);
 void sema_down(struct semaphore*);
@@ -26,25 +16,13 @@ bool sema_try_down(struct semaphore*);
 void sema_up(struct semaphore*);
 void sema_self_test(void);
 
-
 /* Lock. */
 struct lock {
-    struct thread *holder;      /* Thread holding lock (for debugging). */              
-    struct heap waiters;        /* Binary semaphore controlling access. */
-    struct heap_elem elem;
+  struct thread* holder;      /* Thread holding lock (for debugging). */
+  struct semaphore semaphore; /* Binary semaphore controlling access. */
 };
-
-
-/* A struct containing a lock that allows us to match with a userspace address. */
-struct userspace_lock_container {
-    struct lock lock;
-    void *userspace_addr;
-    struct list_elem elem;
-};
-
 
 void lock_init(struct lock*);
-void lock_refresh_donors(struct lock*);
 void lock_acquire(struct lock*);
 bool lock_try_acquire(struct lock*);
 void lock_release(struct lock*);
@@ -52,7 +30,7 @@ bool lock_held_by_current_thread(const struct lock*);
 
 /* Condition variable. */
 struct condition {
-    struct heap waiters; /* List of waiting threads. */
+  struct list waiters; /* List of waiting threads. */
 };
 
 void cond_init(struct condition*);

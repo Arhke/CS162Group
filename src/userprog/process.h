@@ -25,6 +25,7 @@ typedef void (*stub_fun)(pthread_fun, void*);
    to the PCB, and the PCB will have a pointer to the main thread
    of the process, which is `special`. */
 
+
 enum {
     UNKNOWN,            /* Parent has neither exited nor waited */
     WAITING,            /* Parent is actively waiting */
@@ -46,11 +47,8 @@ struct process {
     char process_name[32];                      /* Name of the main thread */
     struct thread* main_thread;                 /* Pointer to main thread */
 
-    /* Project 1 User Programs. */
     struct process *parent_process;             /* Pointer to parent process */
-
     struct list child_processes;                /* List of struct child_data shared with child processes */
-    struct lock child_processes_lock;
 
     struct child_data *start_process_result;    /* The child_data of the result of process_execute, NULL if start_process fails*/
     struct semaphore start_process_sema;        /* Semaphore that ensures child PCB is initialized before parent finishes exec */
@@ -60,25 +58,6 @@ struct process {
 
     struct file* fdt[MAX_FD_NUM];               /* File descriptor table for this process */
     struct file* executable;                    /* Executable that is being run by this process */
-
-
-    /* Project 2 Threads. */
-
-    /* User Threads pthreads. */
-    struct list active_threads;
-    struct lock active_threads_lock;
-
-    /* User Threads Synchronization. */
-    struct list thread_data;
-    struct lock thread_data_lock;
-
-    struct list process_locks;
-    struct lock process_locks_lock;
-
-    struct list process_semas;
-    struct lock process_semas_lock;
-
-    bool forced_exit;
 };
 
 

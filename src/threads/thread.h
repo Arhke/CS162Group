@@ -4,11 +4,8 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-#include <heap.h>
 #include "threads/synch.h"
 #include "threads/fixed-point.h"
-
-extern struct heap prio_ready_heap;
 
 /* States in a thread's life cycle. */
 enum thread_status {
@@ -85,50 +82,17 @@ typedef int tid_t;
    ready state is on the run queue, whereas only a thread in the
    blocked state is on a semaphore wait list. */
 // #define USERPROG
-
-
-struct thread_data {
-    tid_t tid;                  /* TID of corresponding thread. */
-    struct semaphore join_sema; /* Semaphore that allows other threads to join. */
-    struct list_elem elem;      /* List element for struct process list of thread_data. */
-};
-
-
 struct thread {
     /* Owned by thread.c. */
-    tid_t tid;                  /* Thread identifier. */
-    enum thread_status status;  /* Thread state. */
-    char name[32];              /* Name (for debugging purposes). */
-    uint8_t* stack;             /* Saved stack pointer. */
-    struct list_elem allelem;   /* List element for all threads list. */
-
-    /* Project 2 Threads. */
-
-    /* Efficient Alarm Clock. */
-    int64_t wake_time;           /* Absolute time in ticks at which this thread should wake up if sleeping. */
-    struct list_elem sleep_elem; /* List element for sleeping threads. */
-
-    /* Strict Priority Scheduler. */
-    struct heap held_locks;     /* List of held locks */
-    struct lock *waiting_lock;
-
-    int priority;               /* Priority. */
-    int effective_priority;     /* Effective priority. */
-
-    struct heap *current_heap;  /* Pointer to the current heap that the thread is stored in. */
-    struct heap_elem heap_elem; /* Elem that allows the thread to be stored in a heap. */
-
-    /* User Threads. */
-    void *stack_slot;           /* Number of pages under PHYS_BASE that this thread's stack occupies. */
-    bool start_pthread_success;
-    struct semaphore start_pthread_sema;
-    struct thread_data *data;       /* Data corresponding to this thread. */
-
-    struct list_elem process_elem;  /* List element for active threads list in struct process. */
+    tid_t tid;                 /* Thread identifier. */
+    enum thread_status status; /* Thread state. */
+    char name[32];             /* Name (for debugging purposes). */
+    uint8_t* stack;            /* Saved stack pointer. */
+    int priority;              /* Priority. */
+    struct list_elem allelem;  /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem; /* List element. */
-    
 
 #ifdef USERPROG
     /* Owned by process.c. */
@@ -138,9 +102,6 @@ struct thread {
     /* Owned by thread.c. */
     unsigned magic; /* Detects stack overflow. */
 };
-
-
-
 
 /* Types of scheduler that the user can request the kernel
  * use to schedule threads at runtime. */
@@ -191,9 +152,5 @@ int thread_get_nice(void);
 void thread_set_nice(int);
 int thread_get_recent_cpu(void);
 int thread_get_load_avg(void);
-
-void thread_refresh_priority(struct thread*);
-
-bool sleep_less(const struct list_elem* a_, const struct list_elem* b_, void* aux UNUSED);
 
 #endif /* threads/thread.h */

@@ -35,7 +35,6 @@ tests/userprog/multithreading_TESTS += tests/userprog/multithreading/exit-clean-
 tests/userprog/multithreading_TESTS += tests/userprog/multithreading/exit-clean-2
 tests/userprog/multithreading_TESTS += tests/userprog/multithreading/multi-oom-mt
 tests/userprog/multithreading_TESTS += tests/userprog/multithreading/pcb-syn
-tests/userprog/multithreading_TESTS += tests/userprog/multithreading/sema-up-error
 
 tests/userprog/multithreading_PROGS = $(tests/userprog/multithreading_TESTS) $(addprefix \
 tests/userprog/multithreading/,child-simple)
@@ -72,7 +71,6 @@ tests/userprog/multithreading/exit-clean-1_SRC = tests/userprog/multithreading/e
 tests/userprog/multithreading/exit-clean-2_SRC = tests/userprog/multithreading/exit-clean.c
 tests/userprog/multithreading/multi-oom-mt_SRC = tests/userprog/multithreading/multi-oom-mt.c
 tests/userprog/multithreading/pcb-syn_SRC = tests/userprog/multithreading/pcb-syn.c
-tests/userprog/multithreading/sema-up-error_SRC = tests/userprog/multithreading/sema-up-error.c
 
 $(foreach prog,$(tests/userprog/multithreading_PROGS),$(eval $(prog)_SRC += tests/lib.c tests/main.c))
 
