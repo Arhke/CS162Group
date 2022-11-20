@@ -119,27 +119,25 @@ void thread_init(void) {
 
 /* Initializes the process's file descriptor table */
 void fdt_init(struct process* p) {
-  for (int i = 0; i < MAX_FD_NUM; i++) {
-    p->fdt[i] = NULL;
-  }
+    memset(p->fdt, 0, MAX_FD_NUM * sizeof(struct file *));
 }
 
 /* Returns the first available file descriptor index in the current
    process' file descriptor table. */
 int open_fd(struct process* p) {
-  int fd = -1;
-  for (int i = 2; i < MAX_FD_NUM; i++) {
-    if (p->fdt[i] == NULL) {
-      fd = i;
-      break;
+    int fd = -1;
+    for (int i = 2; i < MAX_FD_NUM; i++) {
+        if (p->fdt[i] == NULL) {
+            fd = i;
+            break;
+        }
     }
-  }
-  return fd;
+    return fd;
 }
 
 /* Check if a file descriptor corresponds to a valid open file in process p */
 bool valid_fd(struct process* p, int fd) {
-  return fd >= 0 && fd < MAX_FD_NUM && (fd < 3 || p->fdt[fd] != NULL);
+    return fd >= 0 && fd < MAX_FD_NUM && (fd < 3 || p->fdt[fd] != NULL);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
