@@ -10,10 +10,10 @@
 
 /* States in a thread's life cycle. */
 enum thread_status {
-  THREAD_RUNNING, /* Running thread. */
-  THREAD_READY,   /* Not running but ready to run. */
-  THREAD_BLOCKED, /* Waiting for an event to trigger. */
-  THREAD_DYING    /* About to be destroyed. */
+    THREAD_RUNNING, /* Running thread. */
+    THREAD_READY,   /* Not running but ready to run. */
+    THREAD_BLOCKED, /* Waiting for an event to trigger. */
+    THREAD_DYING    /* About to be destroyed. */
 };
 
 /* Thread identifier type.
