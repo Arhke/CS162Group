@@ -7,7 +7,10 @@
 static struct intq buffer;
 
 /* Initializes the input buffer. */
-void input_init(void) { intq_init(&buffer); }
+void input_init(void) {
+    intq_init(&buffer);
+    lock_init(&input_lock);
+}
 
 /* Adds a key to the input buffer.
    Interrupts must be off and the buffer must not be full. */

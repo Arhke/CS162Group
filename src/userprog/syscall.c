@@ -12,6 +12,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "lib/float.h"
+#include "lib/kernel/console.h"
 
 
 /* Argument validation macros: In order for a pointer to be valid, must be below PHYS_BASE
@@ -99,10 +100,10 @@ static void syscall_handler(struct intr_frame *f) {
             validate_string(f, file_name);
 
             /* Acquire the global filesystem lock to prevent modification of the executable before running */
-            lock_acquire(&fs_lock);
+
                 /* Put return value PID of execute into eax */
                 f->eax = process_execute((char *) args[1]);
-            lock_release(&fs_lock);
+
 
             break;
         case SYS_WAIT:
@@ -120,9 +121,9 @@ static void syscall_handler(struct intr_frame *f) {
             int32_t initial_size = args[2];
 
             /* Call filesys_create helper function and store return value in eax */
-            lock_acquire(&fs_lock);
+
                 f->eax = filesys_create(file_name, initial_size);
-            lock_release(&fs_lock);
+
 
             break;
         case SYS_REMOVE:
@@ -132,9 +133,9 @@ static void syscall_handler(struct intr_frame *f) {
             validate_string(f, file_name);
 
             /* Call filesys_remove helper function and store return value in eax */
-            lock_acquire(&fs_lock);
+
                 f->eax = filesys_remove(file_name);
-            lock_release(&fs_lock);
+
 
             break;
         case SYS_OPEN:
@@ -144,7 +145,7 @@ static void syscall_handler(struct intr_frame *f) {
             validate_string(f, file_name);
 
             /* Find the next open file descriptor in file descriptor table */
-            lock_acquire(&fs_lock);
+
                 fd = open_fd(pcb);
                 /* If no file descriptor is available, return -1 */
                 if (fd == -1) {
@@ -161,7 +162,7 @@ static void syscall_handler(struct intr_frame *f) {
                         f->eax = fd;
                     }
                 }
-            lock_release(&fs_lock);
+
                 
             break;
         case SYS_FILESIZE:
@@ -173,9 +174,9 @@ static void syscall_handler(struct intr_frame *f) {
             if (!valid_fd(pcb, fd)) {
                 f->eax = -1;
             } else {
-                lock_acquire(&fs_lock);
+
                     f->eax = file_length(pcb->fdt[fd]);
-                lock_release(&fs_lock);
+
             }
             
             break;
@@ -192,19 +193,19 @@ static void syscall_handler(struct intr_frame *f) {
                 f->eax = -1;
             } else if (fd == 0) {
                 /* Reading from stdin */
-                lock_acquire(&fs_lock);
+                lock_acquire(&input_lock);
                     /* Read using input_getc from devices/input.c */
                     for (unsigned i = 0; i < buff_size; i++) {
                         buff_ptr[i] = (char) input_getc();
                     }
-                lock_release(&fs_lock);
+                lock_release(&input_lock);
                 /* Return number of bytes read */
                 f->eax = buff_size;
             } else {
                 /* Reading from a file using file_read helper and storing number of bytes read in eax */
-                lock_acquire(&fs_lock);
+
                     f->eax = file_read(pcb->fdt[fd], buff_ptr, buff_size);
-                lock_release(&fs_lock);
+
             }
 
             break;
@@ -221,14 +222,16 @@ static void syscall_handler(struct intr_frame *f) {
                 f->eax = -1;
             } else if (fd == 1) {
                 /* Write to console if the file descriptor is 1 for stdout */
-                lock_acquire(&fs_lock);
+
+                acquire_console();
                     putbuf(buff_ptr, buff_size);
-                lock_release(&fs_lock);
+                release_console();
+
             } else {
                 /* Write to a file using file_write helper function and store number of bytes read in eax */
-                lock_acquire(&fs_lock);
+
                     f->eax = file_write(pcb->fdt[fd], buff_ptr, buff_size);
-                lock_release(&fs_lock);
+
             }
 
             break;
@@ -240,9 +243,9 @@ static void syscall_handler(struct intr_frame *f) {
 
             /* Call file_seek on the file pointed to by the given file descriptor if it is valid. Otherwise, do nothing. */
             if (valid_fd(pcb, fd)) {
-                lock_acquire(&fs_lock);
+
                     file_seek(pcb->fdt[fd], pos);
-                lock_release(&fs_lock);
+
             }
 
             break;
@@ -255,9 +258,9 @@ static void syscall_handler(struct intr_frame *f) {
             if (!valid_fd(pcb, fd)) {
                 f->eax = -1;
             } else {
-                lock_acquire(&fs_lock);
+
                     f->eax = file_tell(pcb->fdt[fd]);
-                lock_release(&fs_lock);
+
             }
 
             break;
@@ -270,9 +273,9 @@ static void syscall_handler(struct intr_frame *f) {
             if (!valid_fd(pcb, fd)) {
                 f->eax = -1;
             } else {
-                lock_acquire(&fs_lock);
+
                     file_close(pcb->fdt[fd]);
-                lock_release(&fs_lock);
+
                 pcb->fdt[fd] = NULL;
             }
 

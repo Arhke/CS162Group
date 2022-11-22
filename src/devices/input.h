@@ -3,6 +3,9 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "threads/synch.h"
+
+static struct lock input_lock;
 
 void input_init(void);
 void input_putc(uint8_t);
