@@ -74,7 +74,7 @@ void console_panic(void) { use_console_lock = false; }
 void console_print_stats(void) { printf("Console: %lld characters output\n", write_cnt); }
 
 /* Acquires the console lock. */
-void acquire_console(void) {
+static void acquire_console(void) {
     if (!intr_context() && use_console_lock) {
         if (lock_held_by_current_thread(&console_lock))
             console_lock_depth++;
@@ -84,7 +84,7 @@ void acquire_console(void) {
 }
 
 /* Releases the console lock. */
-void release_console(void) {
+static void release_console(void) {
     if (!intr_context() && use_console_lock) {
         if (console_lock_depth > 0)
             console_lock_depth--;

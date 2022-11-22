@@ -12,7 +12,6 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "lib/float.h"
-#include "lib/kernel/console.h"
 
 
 /* Argument validation macros: In order for a pointer to be valid, must be below PHYS_BASE
@@ -99,11 +98,8 @@ static void syscall_handler(struct intr_frame *f) {
             file_name = (char *) args[1];
             validate_string(f, file_name);
 
-            /* Acquire the global filesystem lock to prevent modification of the executable before running */
-
-                /* Put return value PID of execute into eax */
-                f->eax = process_execute((char *) args[1]);
-
+            /* Put return value PID of execute into eax */
+            f->eax = process_execute((char *) args[1]);
 
             break;
         case SYS_WAIT:
@@ -121,9 +117,7 @@ static void syscall_handler(struct intr_frame *f) {
             int32_t initial_size = args[2];
 
             /* Call filesys_create helper function and store return value in eax */
-
-                f->eax = filesys_create(file_name, initial_size);
-
+            f->eax = filesys_create(file_name, initial_size);
 
             break;
         case SYS_REMOVE:
@@ -133,9 +127,7 @@ static void syscall_handler(struct intr_frame *f) {
             validate_string(f, file_name);
 
             /* Call filesys_remove helper function and store return value in eax */
-
-                f->eax = filesys_remove(file_name);
-
+            f->eax = filesys_remove(file_name);
 
             break;
         case SYS_OPEN:
@@ -145,24 +137,22 @@ static void syscall_handler(struct intr_frame *f) {
             validate_string(f, file_name);
 
             /* Find the next open file descriptor in file descriptor table */
-
-                fd = open_fd(pcb);
-                /* If no file descriptor is available, return -1 */
-                if (fd == -1) {
+            fd = open_fd(pcb);
+            /* If no file descriptor is available, return -1 */
+            if (fd == -1) {
+                f->eax = -1;
+            } else {
+                /* Open the file and add the description to the file descriptor 
+                    * table at index fd, or return -1 if the file could not be opened 
+                    */
+                desc = filesys_open(file_name);
+                if (desc == NULL) {
                     f->eax = -1;
                 } else {
-                    /* Open the file and add the description to the file descriptor 
-                     * table at index fd, or return -1 if the file could not be opened 
-                     */
-                    desc = filesys_open(file_name);
-                    if (desc == NULL) {
-                        f->eax = -1;
-                    } else {
-                        pcb->fdt[fd] = desc;
-                        f->eax = fd;
-                    }
+                    pcb->fdt[fd] = desc;
+                    f->eax = fd;
                 }
-
+            }
                 
             break;
         case SYS_FILESIZE:
@@ -174,9 +164,7 @@ static void syscall_handler(struct intr_frame *f) {
             if (!valid_fd(pcb, fd)) {
                 f->eax = -1;
             } else {
-
-                    f->eax = file_length(pcb->fdt[fd]);
-
+                f->eax = file_length(pcb->fdt[fd]);
             }
             
             break;
@@ -203,9 +191,7 @@ static void syscall_handler(struct intr_frame *f) {
                 f->eax = buff_size;
             } else {
                 /* Reading from a file using file_read helper and storing number of bytes read in eax */
-
-                    f->eax = file_read(pcb->fdt[fd], buff_ptr, buff_size);
-
+                f->eax = file_read(pcb->fdt[fd], buff_ptr, buff_size);
             }
 
             break;
@@ -222,16 +208,10 @@ static void syscall_handler(struct intr_frame *f) {
                 f->eax = -1;
             } else if (fd == 1) {
                 /* Write to console if the file descriptor is 1 for stdout */
-
-                acquire_console();
-                    putbuf(buff_ptr, buff_size);
-                release_console();
-
+                putbuf(buff_ptr, buff_size);
             } else {
                 /* Write to a file using file_write helper function and store number of bytes read in eax */
-
-                    f->eax = file_write(pcb->fdt[fd], buff_ptr, buff_size);
-
+                f->eax = file_write(pcb->fdt[fd], buff_ptr, buff_size);
             }
 
             break;
@@ -243,9 +223,7 @@ static void syscall_handler(struct intr_frame *f) {
 
             /* Call file_seek on the file pointed to by the given file descriptor if it is valid. Otherwise, do nothing. */
             if (valid_fd(pcb, fd)) {
-
-                    file_seek(pcb->fdt[fd], pos);
-
+                file_seek(pcb->fdt[fd], pos);
             }
 
             break;
@@ -258,9 +236,7 @@ static void syscall_handler(struct intr_frame *f) {
             if (!valid_fd(pcb, fd)) {
                 f->eax = -1;
             } else {
-
-                    f->eax = file_tell(pcb->fdt[fd]);
-
+                f->eax = file_tell(pcb->fdt[fd]);
             }
 
             break;
@@ -273,9 +249,7 @@ static void syscall_handler(struct intr_frame *f) {
             if (!valid_fd(pcb, fd)) {
                 f->eax = -1;
             } else {
-
-                    file_close(pcb->fdt[fd]);
-
+                file_close(pcb->fdt[fd]);
                 pcb->fdt[fd] = NULL;
             }
 
