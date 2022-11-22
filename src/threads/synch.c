@@ -145,7 +145,7 @@ static void sema_test_helper(void* sema_) {
    acquire and release it.  When these restrictions prove
    onerous, it's a good sign that a semaphore should be used,
    instead of a lock. */
-void lock_init(struct lock* lock) {
+void lock_init(struct lock *lock) {
     ASSERT(lock != NULL);
 
     lock->holder = NULL;
@@ -159,7 +159,7 @@ void lock_init(struct lock* lock) {
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
-void lock_acquire(struct lock* lock) {
+void lock_acquire(struct lock *lock) {
     ASSERT(lock != NULL);
     ASSERT(!intr_context());
     ASSERT(!lock_held_by_current_thread(lock));
@@ -173,7 +173,7 @@ void lock_acquire(struct lock* lock) {
    thread.
    This function will not sleep, so it may be called within an
    interrupt handler. */
-bool lock_try_acquire(struct lock* lock) {
+bool lock_try_acquire(struct lock *lock) {
     bool success;
 
     ASSERT(lock != NULL);
@@ -189,7 +189,7 @@ bool lock_try_acquire(struct lock* lock) {
    An interrupt handler cannot acquire a lock, so it does not
    make sense to try to release a lock within an interrupt
    handler. */
-void lock_release(struct lock* lock) {
+void lock_release(struct lock *lock) {
     ASSERT(lock != NULL);
     ASSERT(lock_held_by_current_thread(lock));
 
@@ -200,10 +200,20 @@ void lock_release(struct lock* lock) {
 /* Returns true if the current thread holds LOCK, false
    otherwise.  (Note that testing whether some other thread holds
    a lock would be racy.) */
-bool lock_held_by_current_thread(const struct lock* lock) {
+bool lock_held_by_current_thread(const struct lock *lock) {
     ASSERT(lock != NULL);
 
     return lock->holder == thread_current();
+}
+
+bool lock_acquire_if_not_held(struct lock *lock) {
+    enum intr_level old_level = intr_disable();
+    bool result = lock->holder != thread_current();
+    if (result) {
+        lock_acquire(lock);
+    }
+    intr_set_level(old_level);
+    return result;
 }
 
 /* Initializes a readers-writers lock */

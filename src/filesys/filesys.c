@@ -7,10 +7,12 @@
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
+#include "threads/synch.h"
 
 
 
 struct lock fs_lock; /* Global filesystem lock */
+struct lock buffer_cache_lock;
 
 char buffer_cache_space[NUM_CACHE_BLOCKS << 9];
 void *buffer_cache_blocks[NUM_CACHE_BLOCKS];
@@ -30,6 +32,7 @@ static void do_format(void);
    If FORMAT is true, reformats the file system. */
 void filesys_init(bool format) {
     lock_init(&fs_lock);
+    lock_init(&buffer_cache_lock);
     for (int i = 0; i < NUM_CACHE_BLOCKS; i++) {
         buffer_cache_blocks[i] = (void *) (buffer_cache_space + (i << 9));
     }
@@ -70,10 +73,23 @@ void filesys_done(void) {
 bool filesys_create(const char* name, off_t initial_size) {
     block_sector_t inode_sector = 0;
     struct dir* dir = dir_open_root();
-    bool success = (dir != NULL && free_map_allocate(1, &inode_sector) &&
-                    inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector));
-    if (!success && inode_sector != 0)
-        free_map_release(inode_sector, 1);
+
+    bool success = dir != NULL;
+    if (success) {
+        lock_acquire(&free_map_lock);
+            success = free_map_allocate(1, &inode_sector);
+        lock_release(&free_map_lock);
+        if (success) {
+            if (inode_create(inode_sector, initial_size) && dir_add(dir, name, inode_sector)) {
+                success = true;
+            } else {
+                success = false;
+                lock_acquire(&free_map_lock);
+                    free_map_release(inode_sector, 1);
+                lock_release(&free_map_lock);
+            }
+        }
+    }
     dir_close(dir);
 
     return success;

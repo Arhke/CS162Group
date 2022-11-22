@@ -21,6 +21,7 @@ extern int64_t dirty_bits;
 
 /* Global filesystem lock. */
 extern struct lock fs_lock;
+extern struct lock buffer_cache_lock;
 
 void filesys_init(bool format);
 void filesys_done(void);
