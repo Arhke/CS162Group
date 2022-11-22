@@ -206,16 +206,6 @@ bool lock_held_by_current_thread(const struct lock *lock) {
     return lock->holder == thread_current();
 }
 
-bool lock_acquire_if_not_held(struct lock *lock) {
-    enum intr_level old_level = intr_disable();
-    bool result = lock->holder != thread_current();
-    if (result) {
-        lock_acquire(lock);
-    }
-    intr_set_level(old_level);
-    return result;
-}
-
 /* Initializes a readers-writers lock */
 void rw_lock_init(struct rw_lock* rw_lock) {
     lock_init(&rw_lock->lock);
