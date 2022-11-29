@@ -26,4 +26,7 @@ void file_seek(struct file*, off_t);
 off_t file_tell(struct file*);
 off_t file_length(struct file*);
 
+struct inode* file_get_inode(struct file* file);
+
+
 #endif /* filesys/file.h */

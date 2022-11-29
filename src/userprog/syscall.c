@@ -262,5 +262,15 @@ static void syscall_handler(struct intr_frame *f) {
             f->eax = sys_sum_to_e(args[1]);
 
             break;
+        
+        case SYS_INUMBER:
+            validate_space(f, args, 2 * sizeof(uint32_t));
+            
+            int fd = args[1];
+            int inumber = (int) inode_get_inumber(file_get_inode(fd));
+
+            f->eax = inumber;
+
+            break;
         }
 }
