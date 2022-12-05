@@ -83,7 +83,7 @@ bool filesys_create(const char* name, off_t initial_size) {
       dir = dir_open_root();
       name++;
     } else {
-      dir = thread_current()->pcb->cwd;
+      dir = dir_reopen(thread_current()->pcb->cwd);
     }
 
     return create_helper(dir, name, 0, initial_size);
@@ -95,13 +95,15 @@ bool filesys_create(const char* name, off_t initial_size) {
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
 struct file* filesys_open(const char* name) {
-    struct dir* dir = dir_open_root();
-    struct inode* inode = NULL;
+    struct dir* dir;
+    if (name[0] == '/') {
+      dir = dir_open_root();
+      name++;
+    } else {
+      dir = dir_reopen(thread_current()->pcb->cwd);
+    }
 
-    if (dir != NULL)
-        dir_lookup(dir, name, &inode);
-    dir_close(dir);
-
+    struct inode* inode = open_helper(dir, name, 0);
     return file_open(inode);
 }
 
@@ -219,27 +221,24 @@ struct dir* get_last_dir(const char* path) {
   if (path[0] == '/') {
     dir = dir_open_root();
   } else {
-    dir = thread_current()->pcb->cwd;
+    dir = dir_reopen(thread_current()->pcb->cwd);
   }
   char part[NAME_MAX + 1];
   int valid = 0;
   struct inode* inode;
   while ((valid = get_next_part(part, &path))) {
     if (dir_lookup(dir, part, &inode)) {
-      if (dir != thread_current()->pcb->cwd && dir != dir_open_root())
-        dir_close(dir);
+      dir_close(dir);
       dir = dir_open(inode);
     } else {
       /* Path doesn't exist, close current dir and return NULL */
-      if (dir != thread_current()->pcb->cwd && dir != dir_open_root())
-        dir_close(dir);
+      dir_close(dir);
       return NULL;
     }
   }
 
   if (valid == -1) {
-    if (dir != thread_current()->pcb->cwd && dir != dir_open_root())
-        dir_close(dir);
+    dir_close(dir);
     return NULL;
   }
 
@@ -251,15 +250,13 @@ bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t init
     if (path[i] == '/') {
       /* Update dir and recursive call, then break and return */
       char* new_dir_name;
-      strlcpy(new_dir_name, path + index, i - index);
+      strlcpy(new_dir_name, path + index, i - index + 1);
       struct inode* inode;
       if (dir_lookup(dir, new_dir_name, &inode)) {
-        if (dir != thread_current()->pcb->cwd && dir != dir_open_root())
-          dir_close(dir);
+        dir_close(dir);
         dir = dir_open(inode);
       } else {
-        if (dir != thread_current()->pcb->cwd && dir != dir_open_root())
-          dir_close(dir);
+        dir_close(dir);
         return false;
       }
       return create_helper(dir, path, i + 1, initial_size);
@@ -284,7 +281,31 @@ bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t init
           }
       }
   }
-  if (dir != thread_current()->pcb->cwd && dir != dir_open_root())
-    dir_close(dir);
+  dir_close(dir);
   return success;
+}
+
+struct inode* open_helper(struct dir* dir, const char* path, uint32_t index) {
+  for (uint32_t i = index; i < strlen(path); i++) {
+    if (path[i] == '/') {
+      /* Update dir and recursive call, then break and return */
+      char* new_dir_name;
+      strlcpy(new_dir_name, path + index, i - index + 1);
+      struct inode* inode;
+      if (dir_lookup(dir, new_dir_name, &inode)) {
+        dir_close(dir);
+        dir = dir_open(inode);
+      } else {
+        dir_close(dir);
+        return false;
+      }
+      return open_helper(dir, path, i + 1);
+    }
+  }
+
+  struct inode* inode;
+  if (dir != NULL)
+    dir_lookup(dir, path + index, &inode);
+  dir_close(dir);
+  return inode;
 }

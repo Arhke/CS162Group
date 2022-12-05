@@ -42,5 +42,6 @@ int buffer_cache_get_sector(block_sector_t);
 
 struct dir* get_last_dir(const char* path);
 bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t initial_size);
+struct inode* open_helper(struct dir* dir, const char* path, uint32_t index);
 
 #endif /* filesys/filesys.h */

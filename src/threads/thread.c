@@ -137,7 +137,7 @@ int open_fd(struct process* p) {
 
 /* Check if a file descriptor corresponds to a valid open file in process p */
 bool valid_fd(struct process* p, int fd) {
-    return fd >= 0 && fd < MAX_FD_NUM && (fd < 3 || p->fdt[fd] != NULL);
+    return fd >= 0 && fd < MAX_FD_NUM && (fd < 2 || p->fdt[fd] != NULL);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.

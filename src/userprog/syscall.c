@@ -315,7 +315,7 @@ static void syscall_handler(struct intr_frame *f) {
             if (path[0] == '/') {
                 dir = dir_open_root();
             } else {
-                dir = pcb->cwd;
+                dir = dir_reopen(pcb->cwd);
             }
 
             bool success = filesys_create(path, 8 * sizeof(struct dir_entry));
