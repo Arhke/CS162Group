@@ -315,3 +315,8 @@ off_t inode_length(const struct inode* inode) {
     lock_release(&inode->access_lock);
     return result;
 }
+
+/* Returns true if an inode is a directory, or false if it's a file */
+bool inode_is_dir(struct inode* inode) {
+  return inode->data.is_dir;
+}

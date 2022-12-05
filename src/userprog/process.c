@@ -148,6 +148,9 @@ static void start_process(void* aux) {
             // Continue initializing the PCB as normal
             t->pcb->main_thread = t;
             strlcpy(t->pcb->process_name, t->name, sizeof t->name);
+
+            /* Set cwd to parent's cwd */
+            t->pcb->cwd = parent->cwd;
         } else {
             struct process* pcb_to_free = t->pcb;
             t->pcb = NULL;
@@ -298,8 +301,14 @@ void process_exit(int exit_code) {
     }
 
     /* Close all file descriptors */
+    struct fdt_entry* entry;
     for (int i = 0; i < MAX_FD_NUM; i++) {
-        file_close(cur->fdt[i]);
+        entry = cur->fdt[i];
+        if (entry->file != NULL) {
+            file_close(entry->file);
+        } else if (entry->dir != NULL) {
+            dir_close(entry->dir);
+        }
     }
 
     /* Allow writes to the executable file now that the process is exiting */

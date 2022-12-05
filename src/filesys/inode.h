@@ -15,7 +15,8 @@ struct inode_disk {
     block_sector_t start; /* First data sector. */
     off_t length;         /* File size in bytes. */
     unsigned magic;       /* Magic number. */
-    uint32_t unused[125]; /* Not used. */
+    uint32_t unused[124]; /* Not used. */
+    bool is_dir;
 };
 
 /* In-memory inode. */
@@ -43,5 +44,6 @@ off_t inode_write_at(struct inode*, const void*, off_t size, off_t offset);
 void inode_deny_write(struct inode*);
 void inode_allow_write(struct inode*);
 off_t inode_length(const struct inode*);
+bool inode_is_dir(struct inode* inode);
 
 #endif /* filesys/inode.h */

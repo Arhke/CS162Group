@@ -6,6 +6,7 @@
 #include "filesys/off_t.h"
 #include "devices/block.h"
 #include "threads/synch.h"
+#include "filesys/directory.h"
 
 /* Sectors of system file inodes. */
 #define FREE_MAP_SECTOR 0 /* Free map file inode sector. */
@@ -13,6 +14,11 @@
 
 #define NUM_CACHE_BLOCKS 64
 #define bitnum(n) (31 - __builtin_clz(n))
+
+struct fdt_entry {
+    struct dir* dir;
+    struct file* file;
+};
 
 /* Block device that contains the file system. */
 extern struct block* fs_device;
@@ -33,5 +39,8 @@ int buffer_cache_find_sector(block_sector_t);
 int buffer_cache_allocate_sector(block_sector_t);
 int buffer_cache_find_or_allocate_sector(block_sector_t);
 int buffer_cache_get_sector(block_sector_t);
+
+struct dir* get_last_dir(const char* path);
+bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t initial_size);
 
 #endif /* filesys/filesys.h */
