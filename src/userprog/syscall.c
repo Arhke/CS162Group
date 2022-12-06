@@ -160,7 +160,7 @@ static void syscall_handler(struct intr_frame *f) {
                 struct inode* inode = open_helper(dir, path, 0);
                 if (!inode) {
                     f->eax = -1;
-                    dir_close(dir);
+                    break;
                 }
 
                 struct fdt_entry* new_entry = malloc(sizeof(struct fdt_entry));
@@ -358,8 +358,7 @@ static void syscall_handler(struct intr_frame *f) {
             success = dir_add(new_dir, ".", inode_get_inumber(new_dir->inode)) && dir_add(new_dir, "..", inode_get_inumber(dir->inode));
 
             new_dir->inode->data.is_dir = true;
-
-            dir_close(new_dir);
+            
             dir_close(dir);
 
             f->eax = success;
