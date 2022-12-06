@@ -395,5 +395,37 @@ static void syscall_handler(struct intr_frame *f) {
                 }
             }
             break;
+        case SYS_READDIR:
+            /* Validate arguments */
+            validate_space(f, args, 2 * sizeof(uint32_t) + sizeof(char *));
+            fd = args[1];
+            char* dir_name = (char *) args[2];
+            
+            if (!valid_fd(pcb, fd)) {
+                f->eax = false;
+            } else {
+                entry = pcb->fdt[fd];
+                if (entry->dir == NULL) {
+                    f->eax = false;
+                } else {
+                    bool success = true;
+                    while (success) {
+                        success = dir_readdir(entry->dir, dir_name);
+                        if (!success) {
+                            f->eax = false;
+                            break;
+                        }
+                        if (strcmp(dir_name, ".") == 0 || strcmp(dir_name, "..") == 0) {
+                            continue;
+                        } else {
+                            f->eax = true;
+                            break;
+                        }
+                    }
+                    f->eax = false;
+                }
+            }
+
+            break;
         }
 }
