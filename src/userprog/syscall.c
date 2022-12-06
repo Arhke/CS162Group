@@ -259,7 +259,7 @@ static void syscall_handler(struct intr_frame *f) {
             fd = args[1];
 
             /* Call file close on the given fd and update the file descriptor table, or return -1 if the file descriptor is invalid. */
-            if (!valid_fd(pcb, fd)) {
+            if (!valid_fd(pcb, fd) || fd == 0 || fd == 1) {
                 f->eax = -1;
             } else {
                 entry = pcb->fdt[fd];

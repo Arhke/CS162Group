@@ -302,7 +302,7 @@ void process_exit(int exit_code) {
 
     /* Close all file descriptors */
     struct fdt_entry* entry;
-    for (int i = 0; i < MAX_FD_NUM; i++) {
+    for (int i = 2; i < MAX_FD_NUM; i++) {
         entry = cur->fdt[i];
         if (entry == NULL)
             continue;
