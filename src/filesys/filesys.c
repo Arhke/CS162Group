@@ -116,9 +116,9 @@ struct file* filesys_open(const char* name) {
 bool filesys_remove(const char* name) {
     char* file_to_remove;
     struct dir* dir;
-    bool success = mkdir_helper((const char*) name, &dir, &file_to_remove);
+    bool success = mkdir_helper((char*) name, &dir, &file_to_remove);
     if (!success)
-        return false;
+      return false;
 
     /* TODO: Need to disallow if CWD or open */
 

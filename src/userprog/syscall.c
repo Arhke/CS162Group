@@ -149,6 +149,16 @@ static void syscall_handler(struct intr_frame *f) {
                 /* Open the file and add the description to the file descriptor 
                     * table at index fd, or return -1 if the file could not be opened 
                     */
+                /* Root case */
+                if (strlen(path) == 1 && path[0] == '/') {
+                    struct fdt_entry* new_entry = malloc(sizeof(struct fdt_entry));
+                    new_entry->file = NULL;
+                    new_entry->dir = dir_open_root();
+                    pcb->fdt[fd] = new_entry;
+                    f->eax =fd;
+                    break;
+                }
+
                 struct dir* dir;
                 if (path[0] == '/') {
                     dir = dir_open_root();
@@ -284,7 +294,11 @@ static void syscall_handler(struct intr_frame *f) {
                 f->eax = -1;
             } else {
                 entry = pcb->fdt[fd];
-                file_close(entry->file);
+                if (entry->dir != NULL) {
+                    dir_close(entry->dir);
+                } else if (entry->file != NULL) {
+                    file_close(entry->file);
+                }
                 pcb->fdt[fd] = NULL;
             }
 
@@ -358,7 +372,7 @@ static void syscall_handler(struct intr_frame *f) {
             success = dir_add(new_dir, ".", inode_get_inumber(new_dir->inode)) && dir_add(new_dir, "..", inode_get_inumber(dir->inode));
 
             new_dir->inode->data.is_dir = true;
-            
+
             dir_close(dir);
 
             f->eax = success;
