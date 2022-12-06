@@ -15,9 +15,12 @@ struct inode_disk {
     off_t length;         /* File size in bytes. */
     unsigned magic;       /* Magic number. */
 
-    block_sector_t direct_pointers[122];
+    block_sector_t direct_pointers[121];
     block_sector_t indirect_pointer;
-    block_sector_t doubly_indirect_pointer;    
+    block_sector_t doubly_indirect_pointer;
+
+    block_sector_t start; /* remove later */
+    
     char* name; /* Not used. */
     bool is_dir;
 };

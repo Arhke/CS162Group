@@ -22,13 +22,19 @@ static inline size_t bytes_to_sectors(off_t size) { return DIV_ROUND_UP(size, BL
    POS. */
 static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
     ASSERT(inode != NULL);
+        if (pos < inode->data.length)
+            return inode->data.start + pos / BLOCK_SECTOR_SIZE;
+        else
+            return -1;
+
+    /*
+    ASSERT(inode != NULL);
     if (pos < inode->data.length) {
         off_t index = pos / BLOCK_SECTOR_SIZE;
         block_sector_t sector;
         off_t base = 0;
         off_t limit = 0;
 
-        /* Direct blocks */
         limit += 122;
         if (index < limit) {
             return inode->data.direct_pointers[index];
@@ -36,18 +42,17 @@ static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
         base = limit;
 
 
-        /* Indirect block */
         limit += 128;
         if (index < limit) {
             block_sector_t indirect_block;
             return indirect_block;
         }
         
-        /* Doubly-indirect block */
         return sector;
     }
     else
         return -1;
+    */
 }
 
 /* List of open inodes, so that opening a single inode twice
