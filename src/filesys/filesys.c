@@ -56,7 +56,9 @@ void filesys_init(bool format) {
     free_map_open();
 
     /* Set cwd for initial process to the filesystem root */
-    thread_current()->pcb->cwd = dir_open_root();
+    struct process* pcb = thread_current()->pcb;
+    pcb->cwd = dir_open_root();
+    pcb->cwd->inode->data.is_dir = true;
 }
 
 /* Shuts down the file system module, writing any unwritten data
@@ -112,8 +114,15 @@ struct file* filesys_open(const char* name) {
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
 bool filesys_remove(const char* name) {
-    struct dir* dir = dir_open_root();
-    bool success = dir != NULL && dir_remove(dir, name);
+    char* file_to_remove;
+    struct dir* dir;
+    bool success = mkdir_helper((const char*) name, &dir, &file_to_remove);
+    if (!success)
+        return false;
+
+    /* TODO: Need to disallow if CWD or open */
+
+    success = dir != NULL && dir_remove(dir, file_to_remove);
     dir_close(dir);
 
     return success;
@@ -297,7 +306,7 @@ struct inode* open_helper(struct dir* dir, const char* path, uint32_t index) {
         dir = dir_open(inode);
       } else {
         dir_close(dir);
-        return false;
+        return NULL;
       }
       return open_helper(dir, path, i + 1);
     }
