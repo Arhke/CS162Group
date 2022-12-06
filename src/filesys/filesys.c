@@ -132,7 +132,7 @@ bool filesys_remove(const char* name) {
 static void do_format(void) {
     printf("Formatting file system...");
     free_map_create();
-    if (!dir_create(ROOT_DIR_SECTOR, 16))
+    if (!dir_create("", ROOT_DIR_SECTOR, 16))
         PANIC("root directory creation failed");
     free_map_close();
     printf("done.\n");
@@ -280,7 +280,9 @@ bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t init
           success = free_map_allocate(1, &inode_sector);
       lock_release(&free_map_lock);
       if (success) {
-          if (inode_create(inode_sector, initial_size) && dir_add(dir, path + index, inode_sector)) {
+        char absolutePath[496];
+        snprintf(absolutePath, strlen(dir->inode->data.name) + strlen(path+index) + 2, "%s/%s", dir->inode->data.name, path+index);
+          if (inode_create(absolutePath ,inode_sector, initial_size) && dir_add(dir, path + index, inode_sector)) {
               success = true;
           } else {
               success = false;

@@ -44,7 +44,7 @@ void inode_init(void) {
    device.
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
-bool inode_create(block_sector_t sector, off_t length) {
+bool inode_create(char* absolutePath, block_sector_t sector, off_t length) {
     struct inode_disk* disk_inode = NULL;
     bool success = false;
 
@@ -61,6 +61,8 @@ bool inode_create(block_sector_t sector, off_t length) {
         disk_inode->length = length;
         disk_inode->magic = INODE_MAGIC;
         disk_inode->is_dir = false;
+        disk_inode->name = calloc(strlen(absolutePath)+1, 1);
+        strlcpy(disk_inode->name, absolutePath, strlen(absolutePath)+1);
 
         lock_acquire(&free_map_lock);
         if (free_map_allocate(sectors, &disk_inode->start)) {
@@ -172,6 +174,7 @@ void inode_close(struct inode* inode) {
                 free_map_release(inode->sector, 1);
                 free_map_release(inode->data.start, bytes_to_sectors(inode->data.length));
             lock_release(&free_map_lock);
+            free(inode->data.name);
         }
 
         free(inode);
@@ -182,11 +185,43 @@ void inode_close(struct inode* inode) {
 
 /* Marks INODE to be deleted when it is closed by the last caller who
    has it open. */
-void inode_remove(struct inode* inode) {
+bool inode_remove(struct inode* inode) {
     ASSERT(inode != NULL);
     lock_acquire(&inode->access_lock);
-        inode->removed = true;
+    // char absolutePath[strlen(inode->data.name)+2];
+    // snprintf(absolutePath, strlen(inode->data.name)+2, "%s/", inode->data.name)
+    struct list_elem* e;
+    char* path = inode->data.name;
+    
+    for (e = list_begin(&open_inodes); e != list_end(&open_inodes); e = list_next(e)){
+      char* pathCMP = list_entry(e, struct inode, elem)->data.name;
+      if(strlen(path) > strlen(pathCMP)){
+        continue;
+      }else if(strlen(path) == strlen(pathCMP)){
+        if(strcmp(path, pathCMP) == 0){
+          lock_release(&inode->access_lock);
+          return false;
+          // return;
+        }
+      }else{
+        for(uint32_t i = 0; i < strlen(path); i++){
+          if(path[i] != pathCMP[i]){
+            goto outerLoop;
+          }
+        }
+        if(pathCMP[strlen(path)] == '/'){
+          lock_release(&inode->access_lock);
+          return false;
+          // return;
+        }
+      }
+      outerLoop:;
+      
+    }
+    inode->removed = true;
     lock_release(&inode->access_lock);
+    return true;
+    // return;
 }
 
 /* Reads SIZE bytes from INODE into BUFFER, starting at position OFFSET.
