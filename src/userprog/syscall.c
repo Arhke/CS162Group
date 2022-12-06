@@ -11,6 +11,8 @@
 #include "devices/input.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
+#include "filesys/directory.h"
+#include "filesys/inode.h"
 #include "lib/float.h"
 
 
@@ -67,10 +69,12 @@ static void syscall_handler(struct intr_frame *f) {
 
     /* Setup common variable names for file syscalls */
     char* file_name;
-    struct file* desc;
     int fd;
     unsigned buff_size;
     char* buff_ptr;
+    struct fdt_entry* entry;
+    struct dir* dir;
+    char* path;
 
     switch (args[0]) {
         case SYS_PRACTICE:
@@ -133,8 +137,8 @@ static void syscall_handler(struct intr_frame *f) {
         case SYS_OPEN:
             /* Validate and copy arguments */
             validate_space(f, args, sizeof(uint32_t) + sizeof(char *));
-            file_name = (char *) args[1];
-            validate_string(f, file_name);
+            path = (char *) args[1];
+            validate_string(f, path);
 
             /* Find the next open file descriptor in file descriptor table */
             fd = open_fd(pcb);
@@ -145,13 +149,40 @@ static void syscall_handler(struct intr_frame *f) {
                 /* Open the file and add the description to the file descriptor 
                     * table at index fd, or return -1 if the file could not be opened 
                     */
-                desc = filesys_open(file_name);
-                if (desc == NULL) {
-                    f->eax = -1;
-                } else {
-                    pcb->fdt[fd] = desc;
-                    f->eax = fd;
+                /* Root case */
+                if (strlen(path) == 1 && path[0] == '/') {
+                    struct fdt_entry* new_entry = malloc(sizeof(struct fdt_entry));
+                    new_entry->file = NULL;
+                    new_entry->dir = dir_open_root();
+                    pcb->fdt[fd] = new_entry;
+                    f->eax =fd;
+                    break;
                 }
+
+                struct dir* dir;
+                if (path[0] == '/') {
+                    dir = dir_open_root();
+                    path++;
+                } else {
+                    dir = dir_reopen(thread_current()->pcb->cwd);
+                }
+
+                struct inode* inode = open_helper(dir, path, 0);
+                if (!inode) {
+                    f->eax = -1;
+                    break;
+                }
+
+                struct fdt_entry* new_entry = malloc(sizeof(struct fdt_entry));
+                if (inode->data.is_dir) {
+                    new_entry->dir = dir_open(inode);
+                    new_entry->file = NULL;
+                } else {
+                    new_entry->file = file_open(inode);
+                    new_entry->dir = NULL;
+                }
+                pcb->fdt[fd] = new_entry;
+                f->eax = fd;
             }
                 
             break;
@@ -164,7 +195,8 @@ static void syscall_handler(struct intr_frame *f) {
             if (!valid_fd(pcb, fd)) {
                 f->eax = -1;
             } else {
-                f->eax = file_length(pcb->fdt[fd]);
+                entry = pcb->fdt[fd];
+                f->eax = file_length(entry->file);
             }
             
             break;
@@ -191,7 +223,12 @@ static void syscall_handler(struct intr_frame *f) {
                 f->eax = buff_size;
             } else {
                 /* Reading from a file using file_read helper and storing number of bytes read in eax */
-                f->eax = file_read(pcb->fdt[fd], buff_ptr, buff_size);
+                entry = pcb->fdt[fd];
+                if (entry->dir != NULL) {
+                    f->eax = -1;
+                } else {
+                    f->eax = file_read(entry->file, buff_ptr, buff_size);
+                }
             }
 
             break;
@@ -211,7 +248,12 @@ static void syscall_handler(struct intr_frame *f) {
                 putbuf(buff_ptr, buff_size);
             } else {
                 /* Write to a file using file_write helper function and store number of bytes read in eax */
-                f->eax = file_write(pcb->fdt[fd], buff_ptr, buff_size);
+                entry = pcb->fdt[fd];
+                if (entry->dir != NULL) {
+                    f->eax = -1;
+                } else {
+                    f->eax = file_write(entry->file, buff_ptr, buff_size);
+                }
             }
 
             break;
@@ -223,7 +265,8 @@ static void syscall_handler(struct intr_frame *f) {
 
             /* Call file_seek on the file pointed to by the given file descriptor if it is valid. Otherwise, do nothing. */
             if (valid_fd(pcb, fd)) {
-                file_seek(pcb->fdt[fd], pos);
+                entry = pcb->fdt[fd];
+                file_seek(entry->file, pos);
             }
 
             break;
@@ -236,7 +279,8 @@ static void syscall_handler(struct intr_frame *f) {
             if (!valid_fd(pcb, fd)) {
                 f->eax = -1;
             } else {
-                f->eax = file_tell(pcb->fdt[fd]);
+                entry = pcb->fdt[fd];
+                f->eax = file_tell(entry->file);
             }
 
             break;
@@ -246,10 +290,15 @@ static void syscall_handler(struct intr_frame *f) {
             fd = args[1];
 
             /* Call file close on the given fd and update the file descriptor table, or return -1 if the file descriptor is invalid. */
-            if (!valid_fd(pcb, fd)) {
+            if (!valid_fd(pcb, fd) || fd == 0 || fd == 1) {
                 f->eax = -1;
             } else {
-                file_close(pcb->fdt[fd]);
+                entry = pcb->fdt[fd];
+                if (entry->dir != NULL) {
+                    dir_close(entry->dir);
+                } else if (entry->file != NULL) {
+                    file_close(entry->file);
+                }
                 pcb->fdt[fd] = NULL;
             }
 
@@ -264,12 +313,122 @@ static void syscall_handler(struct intr_frame *f) {
             break;
         
         case SYS_INUMBER:
+            /* Validate arguments */
             validate_space(f, args, 2 * sizeof(uint32_t));
-            
             int fd = args[1];
-            int inumber = (int) inode_get_inumber(file_get_inode(pcb->fdt[fd]));
 
-            f->eax = inumber;
+            entry = pcb->fdt[fd];
+            if (entry != NULL && entry->file != NULL) {
+                f->eax = inode_get_inumber(file_get_inode(entry->file));
+            } else{
+                f->eax = -1;
+            }
+
+            break;
+        case SYS_CHDIR:
+            /* Validate arguments */
+            validate_space(f, args, sizeof(uint32_t) + sizeof(char *));
+            path = (char *) args[1];
+            validate_string(f, path);
+
+            dir = get_last_dir((const char*) path);
+            if (dir != NULL) {
+                pcb->cwd = dir;
+                f->eax = true;
+            } else {
+                f->eax = false;
+            }
+
+            break;
+        case SYS_MKDIR:
+            /* Validate arguments */
+            validate_space(f, args, sizeof(uint32_t) + sizeof(char *));
+            path = (char *) args[1];
+            validate_string(f, path);
+
+            if (strlen(path) == 0) {
+                f->eax = false;
+                break;
+            }
+
+            bool success = filesys_create(path, 8 * sizeof(struct dir_entry));
+            if (!success) {
+                f->eax = false;
+                break;
+            }
+            
+            char* new_dir_name;
+            success = mkdir_helper(path, &dir, &new_dir_name);
+            if (!success) {
+                f->eax = false;
+                break;
+            }
+
+            struct inode* new_dir_inode;
+            success = dir_lookup(dir, new_dir_name, &new_dir_inode);
+            if (!success) {
+                f->eax = false;
+                dir_close(dir);
+                break;
+            }
+           
+            struct dir* new_dir = dir_open(new_dir_inode);
+            success = dir_add(new_dir, ".", inode_get_inumber(new_dir->inode)) && dir_add(new_dir, "..", inode_get_inumber(dir->inode));
+
+            new_dir->inode->data.is_dir = true;
+
+            dir_close(dir);
+
+            f->eax = success;
+
+            break;
+        case SYS_ISDIR:
+            /* Validate arguments */
+            validate_space(f, args, 2 * sizeof(uint32_t));
+            fd = args[1];
+
+            /* If the file descriptor represents a directory, return true, otherwise return false */
+            if (!valid_fd(pcb, fd)) {
+                f->eax = false;
+            } else {
+                entry = pcb->fdt[fd];
+                if (entry->dir != NULL) {
+                    f->eax = true;
+                } else {
+                    f->eax = false;
+                }
+            }
+            break;
+        case SYS_READDIR:
+            /* Validate arguments */
+            validate_space(f, args, 2 * sizeof(uint32_t) + sizeof(char *));
+            fd = args[1];
+            char* dir_name = (char *) args[2];
+            
+            if (!valid_fd(pcb, fd)) {
+                f->eax = false;
+            } else {
+                entry = pcb->fdt[fd];
+                if (entry->dir == NULL) {
+                    f->eax = false;
+                } else {
+                    bool success = true;
+                    while (success) {
+                        success = dir_readdir(entry->dir, dir_name);
+                        if (!success) {
+                            f->eax = false;
+                            break;
+                        }
+                        if (strcmp(dir_name, ".") == 0 || strcmp(dir_name, "..") == 0) {
+                            continue;
+                        } else {
+                            f->eax = true;
+                            break;
+                        }
+                    }
+                    f->eax = false;
+                }
+            }
 
             break;
         }

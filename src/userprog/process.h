@@ -4,6 +4,7 @@
 #include "threads/thread.h"
 #include "threads/synch.h"
 #include <stdint.h>
+#include "filesys/filesys.h"
 
 // At most 8MB can be allocated to the stack
 // These defines will be used in Project 2: Multithreading
@@ -56,8 +57,10 @@ struct process {
 
     child_data_t *child_info;                   /* Shared data struct with parent. See child_data struct above */
 
-    struct file* fdt[MAX_FD_NUM];               /* File descriptor table for this process */
+    struct fdt_entry* fdt[MAX_FD_NUM];               /* File descriptor table for this process */
     struct file* executable;                    /* Executable that is being run by this process */
+
+    struct dir* cwd;
 };
 
 
