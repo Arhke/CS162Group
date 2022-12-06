@@ -249,7 +249,7 @@ bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t init
   for (uint32_t i = index; i < strlen(path); i++) {
     if (path[i] == '/') {
       /* Update dir and recursive call, then break and return */
-      char* new_dir_name;
+      char new_dir_name[NAME_MAX + 1]; 
       strlcpy(new_dir_name, path + index, i - index + 1);
       struct inode* inode;
       if (dir_lookup(dir, new_dir_name, &inode)) {
@@ -289,7 +289,7 @@ struct inode* open_helper(struct dir* dir, const char* path, uint32_t index) {
   for (uint32_t i = index; i < strlen(path); i++) {
     if (path[i] == '/') {
       /* Update dir and recursive call, then break and return */
-      char* new_dir_name;
+      char new_dir_name[NAME_MAX + 1]; 
       strlcpy(new_dir_name, path + index, i - index + 1);
       struct inode* inode;
       if (dir_lookup(dir, new_dir_name, &inode)) {
@@ -308,4 +308,36 @@ struct inode* open_helper(struct dir* dir, const char* path, uint32_t index) {
     dir_lookup(dir, path + index, &inode);
   dir_close(dir);
   return inode;
+}
+
+struct dir* get_second_to_last_dir(char* path) {
+  int last_slash = -1;
+  for (int i = 0; i < (int) strlen(path); i++) {
+    if (path[i] == '/')
+      last_slash = i;
+  }
+  if (last_slash <= 0)
+    return dir_open_root();
+  path[last_slash] = '\0';
+  return get_last_dir((const char*) path);
+}
+
+bool mkdir_helper(char* path, struct dir** dir, char** file_name) {
+  int last_slash = -1;
+  for (int i = 0; i < (int) strlen(path); i++) {
+    if (path[i] == '/')
+      last_slash = i;
+  }
+  if (last_slash == -1) {
+    *dir = dir_open_root();
+    *file_name = path;
+  } else if (last_slash == 0) {
+    *dir = dir_open_root();
+    *file_name = path + 1;
+  } else {
+    path[last_slash] = '\0';
+    *dir = get_last_dir(path);
+    *file_name = path + last_slash + 1;
+  }
+  return true;
 }

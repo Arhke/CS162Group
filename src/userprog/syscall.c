@@ -312,20 +312,21 @@ static void syscall_handler(struct intr_frame *f) {
                 break;
             }
 
-            if (path[0] == '/') {
-                dir = dir_open_root();
-            } else {
-                dir = dir_reopen(pcb->cwd);
-            }
-
             bool success = filesys_create(path, 8 * sizeof(struct dir_entry));
             if (!success) {
-                f->eax =false;
-                dir_close(dir);
+                f->eax = false;
                 break;
             }
+            
+            char* new_dir_name;
+            success = mkdir_helper(path, &dir, &new_dir_name);
+            if (!success) {
+                f->eax = false;
+                break;
+            }
+
             struct inode* new_dir_inode;
-            success = dir_lookup(dir, path, &new_dir_inode);
+            success = dir_lookup(dir, new_dir_name, &new_dir_inode);
             if (!success) {
                 f->eax = false;
                 dir_close(dir);
