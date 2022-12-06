@@ -187,6 +187,14 @@ void inode_close(struct inode* inode) {
    has it open. */
 bool inode_remove(struct inode* inode) {
     ASSERT(inode != NULL);
+    if(strcmp(inode->data.name, "/0/0/2") == 0){
+        char* a;
+        int b = 2;
+    }
+    if(strcmp(inode->data.name, "/0/0") == 0){
+        char* a;
+        int b = 2;
+    }
     lock_acquire(&inode->access_lock);
     // char absolutePath[strlen(inode->data.name)+2];
     // snprintf(absolutePath, strlen(inode->data.name)+2, "%s/", inode->data.name)
@@ -195,14 +203,8 @@ bool inode_remove(struct inode* inode) {
     
     for (e = list_begin(&open_inodes); e != list_end(&open_inodes); e = list_next(e)){
       char* pathCMP = list_entry(e, struct inode, elem)->data.name;
-      if(strlen(path) > strlen(pathCMP)){
+      if(strlen(path) >= strlen(pathCMP)){
         continue;
-      }else if(strlen(path) == strlen(pathCMP)){
-        if(strcmp(path, pathCMP) == 0){
-          lock_release(&inode->access_lock);
-          return false;
-          // return;
-        }
       }else{
         for(uint32_t i = 0; i < strlen(path); i++){
           if(path[i] != pathCMP[i]){
