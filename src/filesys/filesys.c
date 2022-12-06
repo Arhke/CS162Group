@@ -329,7 +329,7 @@ bool mkdir_helper(char* path, struct dir** dir, char** file_name) {
       last_slash = i;
   }
   if (last_slash == -1) {
-    *dir = dir_open_root();
+    *dir = dir_reopen(thread_current()->pcb->cwd);
     *file_name = path;
   } else if (last_slash == 0) {
     *dir = dir_open_root();
