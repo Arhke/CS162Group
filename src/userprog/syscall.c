@@ -313,12 +313,16 @@ static void syscall_handler(struct intr_frame *f) {
             break;
         
         case SYS_INUMBER:
+            /* Validate arguments */
             validate_space(f, args, 2 * sizeof(uint32_t));
-            
             int fd = args[1];
-            int inumber = (int) inode_get_inumber(file_get_inode(fd));
 
-            f->eax = inumber;
+            entry = pcb->fdt[fd];
+            if (entry != NULL && entry->file != NULL) {
+                f->eax = inode_get_inumber(file_get_inode(entry->file));
+            } else{
+                f->eax = -1;
+            }
 
             break;
         case SYS_CHDIR:
