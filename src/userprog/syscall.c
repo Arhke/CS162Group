@@ -267,7 +267,7 @@ static void syscall_handler(struct intr_frame *f) {
             validate_space(f, args, 2 * sizeof(uint32_t));
             
             int fd = args[1];
-            int inumber = (int) inode_get_inumber(file_get_inode(fd));
+            int inumber = (int) inode_get_inumber(file_get_inode(pcb->fdt[fd]));
 
             f->eax = inumber;
 

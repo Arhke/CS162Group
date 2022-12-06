@@ -22,8 +22,30 @@ static inline size_t bytes_to_sectors(off_t size) { return DIV_ROUND_UP(size, BL
    POS. */
 static block_sector_t byte_to_sector(const struct inode* inode, off_t pos) {
     ASSERT(inode != NULL);
-    if (pos < inode->data.length)
-        return inode->data.start + pos / BLOCK_SECTOR_SIZE;
+    if (pos < inode->data.length) {
+        off_t index = pos / BLOCK_SECTOR_SIZE;
+        block_sector_t sector;
+        off_t base = 0;
+        off_t limit = 0;
+
+        /* Direct blocks */
+        limit += 123;
+        if (index < limit) {
+            return inode->data.direct_pointers[index];
+        }
+        base = limit;
+
+
+        /* Indirect block */
+        limit += 128;
+        if (index < limit) {
+            block_sector_t indirect_block;
+            return indirect_block;
+        }
+        
+        /* Doubly-indirect block */
+        return sector;
+    }
     else
         return -1;
 }
@@ -315,3 +337,62 @@ off_t inode_length(const struct inode* inode) {
     lock_release(&inode->access_lock);
     return result;
 }
+
+bool inode_resize(struct inode_disk* id, off_t size);
+
+bool inode_resize(struct inode_disk* id, off_t size) {
+    if (size < 0) {
+        return false;
+    }
+
+    for (int i = 0; i < 123; i++) {
+        if (size <= BLOCK_SECTOR_SIZE * i && id->direct_pointers[i] != 0) {
+            free_map_release(id->direct_pointers[i], 1);
+            id->direct_pointers[i] = 0;
+        } else if (size > BLOCK_SECTOR_SIZE * i && id->direct_pointers[i] == 0) {
+            free_map_allocate(1, &id->direct_pointers[i]);
+            if (id->direct_pointers[i] == 0) {
+                inode_resize(id, id->length);
+                return false;
+            }
+        }
+    }
+
+    if (id->indirect_pointer == 0 && size <= 12 * BLOCK_SECTOR_SIZE) {
+        id->length = size;
+        return true;
+    }
+    block_sector_t buffer[128];
+    memset(buffer, 0, 512);
+    if (id->indirect_pointer == 0) {
+        free_map_allocate(1, &id->indirect_pointer);
+        if (id->indirect_pointer == 0) {
+            inode_resize(id, id->length);
+            return false;
+        }
+    } else {
+        /* implement block_read */
+    }
+
+    for (int i = 0; i < 128; i++) {
+        if (size <= (12 + i) * BLOCK_SECTOR_SIZE && buffer[i] != 0) {
+            free_map_release(buffer[i], 1);
+            buffer[i] = 0;
+        } else if (size > (12 + i) * BLOCK_SECTOR_SIZE && buffer[i] == 0) {
+            free_map_allocate(1, &buffer[i]);
+            if (buffer[i] == 0) {
+                return false;
+            }
+        }
+    }
+    if (size <= 12 * BLOCK_SECTOR_SIZE) {
+        free_map_release(id->indirect_pointer, 1);
+        id->indirect_pointer = 0;
+    } else {
+        /* implement block_write */
+    }
+    id->length = size;
+
+    return true;
+}
+

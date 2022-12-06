@@ -12,10 +12,12 @@ struct bitmap;
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk {
-    block_sector_t start; /* First data sector. */
     off_t length;         /* File size in bytes. */
     unsigned magic;       /* Magic number. */
-    uint32_t unused[125]; /* Not used. */
+
+    block_sector_t direct_pointers[123];
+    block_sector_t indirect_pointer;
+    block_sector_t doubly_indirect_pointer;    
 };
 
 /* In-memory inode. */
@@ -43,5 +45,6 @@ off_t inode_write_at(struct inode*, const void*, off_t size, off_t offset);
 void inode_deny_write(struct inode*);
 void inode_allow_write(struct inode*);
 off_t inode_length(const struct inode*);
+bool inode_resize(struct inode_disk* id, off_t size);
 
 #endif /* filesys/inode.h */
