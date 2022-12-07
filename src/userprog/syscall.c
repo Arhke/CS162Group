@@ -318,9 +318,15 @@ static void syscall_handler(struct intr_frame *f) {
             int fd = args[1];
 
             entry = pcb->fdt[fd];
-            if (entry != NULL && entry->file != NULL) {
-                f->eax = inode_get_inumber(file_get_inode(entry->file));
-            } else{
+            if (entry != NULL) {
+                if (entry->file != NULL) {
+                    f->eax = inode_get_inumber(file_get_inode(entry->file));
+                } else if (entry->dir != NULL) {
+                    f->eax = inode_get_inumber(entry->dir->inode);
+                } else {
+                    f->eax = -1;
+                }
+            } else {
                 f->eax = -1;
             }
 

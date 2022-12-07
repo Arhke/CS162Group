@@ -113,7 +113,34 @@ bool filesys_remove(const char* name) {
     if (!success)
         return false;
 
-    /* TODO: Need to disallow if CWD or open */
+    /* Disallow if dir has entries other than . and .. */
+    struct inode* inode;
+    if (dir_lookup(dir, file_to_remove, &inode)) {
+        if (inode->data.is_dir) {
+            struct dir* dir_to_remove = dir_open(inode);
+
+            char dir_name[NAME_MAX + 1];
+            while (success) {
+                success = dir_readdir(dir_to_remove, dir_name);
+                if (!success) {
+                    break;
+                }
+                if (strcmp(dir_name, ".") == 0 || strcmp(dir_name, "..") == 0) {
+                    continue;
+                } else {
+                    /* dir has something in it besides . and .., block remove */
+                    dir_close(dir_to_remove);
+                    dir_close(dir);
+                    return false;
+                }
+            }
+
+            dir_close(dir_to_remove);
+        } else {
+            inode_close(inode);
+        }
+    }
+
 
     success = dir != NULL && dir_remove(dir, file_to_remove);
     dir_close(dir);
@@ -260,6 +287,9 @@ struct dir* get_last_dir(const char* path) {
 }
 
 bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t initial_size) {
+    if (dir == NULL || dir->inode->removed) {
+        return false;
+    }
     for (uint32_t i = index; i < strlen(path); i++) {
         if (path[i] == '/') {
             /* Update dir and recursive call, then break and return */
@@ -302,6 +332,9 @@ bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t init
 }
 
 struct inode* open_helper(struct dir* dir, const char* path, uint32_t index) {
+    if (dir == NULL || dir->inode->removed) {
+        return NULL;
+    }
     for (uint32_t i = index; i < strlen(path); i++) {
         if (path[i] == '/') {
             /* Update dir and recursive call, then break and return */
