@@ -438,7 +438,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
     }
 
     /* Indirect Pointers */
-    block_sector_t buffer[INDIRECT_BLOCK_SIZE];
+    block_sector_t* buffer = calloc(1, sizeof(block_sector_t) * INDIRECT_BLOCK_SIZE);
     memset(buffer, 0, BLOCK_SECTOR_SIZE);
     if (id->indirect_pointer == 0) {
         /* Allocate indirect block */
@@ -497,6 +497,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
         lock_acquire(&buffer_cache_lock);
             void *cache_block = buffer_cache_blocks[buffer_cache_get_sector(id->indirect_pointer)];
             memcpy(cache_block, buffer, BLOCK_SECTOR_SIZE);
+            dirty_bits |= (1 << buffer_cache_get_sector(id->indirect_pointer));
         lock_release(&buffer_cache_lock);
     }
 
@@ -569,6 +570,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
         lock_acquire(&buffer_cache_lock);
             void *cache_block = buffer_cache_blocks[buffer_cache_get_sector(id->doubly_indirect_pointer)];
             memcpy(cache_block, buffer, BLOCK_SECTOR_SIZE);
+            dirty_bits |= (1 << buffer_cache_get_sector(id->doubly_indirect_pointer));
         lock_release(&buffer_cache_lock);
     }
 
@@ -633,6 +635,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
             lock_acquire(&buffer_cache_lock);
                 void *cache_block = buffer_cache_blocks[buffer_cache_get_sector(buffer[i])];
                 memcpy(cache_block, second_buffer, BLOCK_SECTOR_SIZE);
+                dirty_bits |= (1 << buffer_cache_get_sector(buffer[i]));
             lock_release(&buffer_cache_lock);
         }
     }
