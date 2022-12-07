@@ -238,17 +238,7 @@ void inode_close(struct inode* inode) {
    has it open. */
 bool inode_remove(struct inode* inode) {
     ASSERT(inode != NULL);
-    if(strcmp(inode->data.name, "/0/0/2") == 0){
-        char *a;
-        int b = 2;
-    }
-    if(strcmp(inode->data.name, "/0/0") == 0){
-        char *a;
-        int b = 2;
-    }
     lock_acquire(&inode->access_lock);
-    // char absolutePath[strlen(inode->data.name)+2];
-    // snprintf(absolutePath, strlen(inode->data.name)+2, "%s/", inode->data.name)
     struct list_elem* e;
     char* path = inode->data.name;
     
@@ -265,7 +255,6 @@ bool inode_remove(struct inode* inode) {
             if (pathCMP[strlen(path)] == '/') {
                 lock_release(&inode->access_lock);
                 return false;
-                // return;
             }
         }
         outerLoop:;
@@ -273,7 +262,6 @@ bool inode_remove(struct inode* inode) {
     inode->removed = true;
     lock_release(&inode->access_lock);
     return true;
-    // return;
 }
 
 /* Reads SIZE bytes from INODE into BUFFER, starting at position OFFSET.
