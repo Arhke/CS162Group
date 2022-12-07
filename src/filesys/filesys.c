@@ -118,7 +118,7 @@ bool filesys_remove(const char* name) {
     struct dir* dir;
     bool success = mkdir_helper((char*) name, &dir, &file_to_remove);
     if (!success)
-      return false;
+        return false;
 
     /* TODO: Need to disallow if CWD or open */
 
@@ -337,7 +337,7 @@ bool mkdir_helper(char* path, struct dir** dir, char** file_name) {
     int last_slash = -1;
     for (int i = 0; i < (int) strlen(path); i++) {
         if (path[i] == '/')
-        last_slash = i;
+            last_slash = i;
     }
     if (last_slash == -1) {
         *dir = dir_reopen(thread_current()->pcb->cwd);

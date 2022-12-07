@@ -215,11 +215,11 @@ void inode_close(struct inode* inode) {
 bool inode_remove(struct inode* inode) {
     ASSERT(inode != NULL);
     if(strcmp(inode->data.name, "/0/0/2") == 0){
-        char* a;
+        char *a;
         int b = 2;
     }
     if(strcmp(inode->data.name, "/0/0") == 0){
-        char* a;
+        char *a;
         int b = 2;
     }
     lock_acquire(&inode->access_lock);
@@ -229,23 +229,22 @@ bool inode_remove(struct inode* inode) {
     char* path = inode->data.name;
     
     for (e = list_begin(&open_inodes); e != list_end(&open_inodes); e = list_next(e)){
-      char* pathCMP = list_entry(e, struct inode, elem)->data.name;
-      if(strlen(path) >= strlen(pathCMP)){
-        continue;
-      }else{
-        for(uint32_t i = 0; i < strlen(path); i++){
-          if(path[i] != pathCMP[i]){
-            goto outerLoop;
-          }
+        char* pathCMP = list_entry(e, struct inode, elem)->data.name;
+        if (strlen(path) >= strlen(pathCMP)) {
+            continue;
+        } else{
+            for (uint32_t i = 0; i < strlen(path); i++) {
+                if(path[i] != pathCMP[i]){
+                    goto outerLoop;
+                }
+            }
+            if (pathCMP[strlen(path)] == '/') {
+                lock_release(&inode->access_lock);
+                return false;
+                // return;
+            }
         }
-        if(pathCMP[strlen(path)] == '/'){
-          lock_release(&inode->access_lock);
-          return false;
-          // return;
-        }
-      }
-      outerLoop:;
-      
+        outerLoop:;
     }
     inode->removed = true;
     lock_release(&inode->access_lock);
