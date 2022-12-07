@@ -149,6 +149,16 @@ static void syscall_handler(struct intr_frame *f) {
                 /* Open the file and add the description to the file descriptor 
                     * table at index fd, or return -1 if the file could not be opened 
                     */
+                /* Root case */
+                if (strlen(path) == 1 && path[0] == '/') {
+                    struct fdt_entry* new_entry = malloc(sizeof(struct fdt_entry));
+                    new_entry->file = NULL;
+                    new_entry->dir = dir_open_root();
+                    pcb->fdt[fd] = new_entry;
+                    f->eax =fd;
+                    break;
+                }
+
                 struct dir* dir;
                 if (path[0] == '/') {
                     dir = dir_open_root();
@@ -284,7 +294,11 @@ static void syscall_handler(struct intr_frame *f) {
                 f->eax = -1;
             } else {
                 entry = pcb->fdt[fd];
-                file_close(entry->file);
+                if (entry->dir != NULL) {
+                    dir_close(entry->dir);
+                } else if (entry->file != NULL) {
+                    file_close(entry->file);
+                }
                 pcb->fdt[fd] = NULL;
             }
 
@@ -299,12 +313,16 @@ static void syscall_handler(struct intr_frame *f) {
             break;
         
         case SYS_INUMBER:
+            /* Validate arguments */
             validate_space(f, args, 2 * sizeof(uint32_t));
-            
             int fd = args[1];
-            int inumber = (int) inode_get_inumber(file_get_inode(fd));
 
-            f->eax = inumber;
+            entry = pcb->fdt[fd];
+            if (entry != NULL && entry->file != NULL) {
+                f->eax = inode_get_inumber(file_get_inode(entry->file));
+            } else{
+                f->eax = -1;
+            }
 
             break;
         case SYS_CHDIR:
@@ -358,7 +376,7 @@ static void syscall_handler(struct intr_frame *f) {
             success = dir_add(new_dir, ".", inode_get_inumber(new_dir->inode)) && dir_add(new_dir, "..", inode_get_inumber(dir->inode));
 
             new_dir->inode->data.is_dir = true;
-            
+
             dir_close(dir);
             dir_close(new_dir);
 
@@ -381,6 +399,38 @@ static void syscall_handler(struct intr_frame *f) {
                     f->eax = false;
                 }
             }
+            break;
+        case SYS_READDIR:
+            /* Validate arguments */
+            validate_space(f, args, 2 * sizeof(uint32_t) + sizeof(char *));
+            fd = args[1];
+            char* dir_name = (char *) args[2];
+            
+            if (!valid_fd(pcb, fd)) {
+                f->eax = false;
+            } else {
+                entry = pcb->fdt[fd];
+                if (entry->dir == NULL) {
+                    f->eax = false;
+                } else {
+                    bool success = true;
+                    while (success) {
+                        success = dir_readdir(entry->dir, dir_name);
+                        if (!success) {
+                            f->eax = false;
+                            break;
+                        }
+                        if (strcmp(dir_name, ".") == 0 || strcmp(dir_name, "..") == 0) {
+                            continue;
+                        } else {
+                            f->eax = true;
+                            break;
+                        }
+                    }
+                    f->eax = false;
+                }
+            }
+
             break;
         }
 }

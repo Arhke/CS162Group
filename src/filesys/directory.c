@@ -9,8 +9,8 @@
 
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
-bool dir_create(block_sector_t sector, size_t entry_cnt) {
-    return inode_create(sector, entry_cnt * sizeof(struct dir_entry));
+bool dir_create(char* absolutePath, block_sector_t sector, size_t entry_cnt) {
+    return inode_create(absolutePath, sector, entry_cnt * sizeof(struct dir_entry));
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -169,8 +169,7 @@ bool dir_remove(struct dir* dir, const char* name) {
             goto done;
 
         /* Remove inode. */
-        inode_remove(inode);
-        success = true;
+        success = inode_remove(inode);
 done:
     inode_close(inode);
     lock_release(&dir->inode->directory_lock);
