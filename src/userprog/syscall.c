@@ -320,7 +320,7 @@ static void syscall_handler(struct intr_frame *f) {
             entry = pcb->fdt[fd];
             if (entry != NULL && entry->file != NULL) {
                 f->eax = inode_get_inumber(file_get_inode(entry->file));
-            } else{
+            } else {
                 f->eax = -1;
             }
 

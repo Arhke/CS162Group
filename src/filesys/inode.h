@@ -9,6 +9,10 @@
 
 struct bitmap;
 
+struct indirect_block {
+    block_sector_t blocks[128];
+};
+
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
 struct inode_disk {
@@ -49,7 +53,7 @@ void inode_deny_write(struct inode*);
 void inode_allow_write(struct inode*);
 off_t inode_length(const struct inode*);
 bool inode_resize(struct inode_disk* id, off_t size);
-bool inode_deallocate(struct inode *inode);
+bool inode_deallocate(struct inode_disk *id);
 bool inode_is_dir(struct inode* inode);
 
 #endif /* filesys/inode.h */
