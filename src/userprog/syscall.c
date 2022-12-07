@@ -360,6 +360,7 @@ static void syscall_handler(struct intr_frame *f) {
             new_dir->inode->data.is_dir = true;
             
             dir_close(dir);
+            dir_close(new_dir);
 
             f->eax = success;
 
