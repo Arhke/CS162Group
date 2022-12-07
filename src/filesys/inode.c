@@ -202,7 +202,31 @@ void inode_close(struct inode* inode) {
                 free_map_release(inode->data.start, bytes_to_sectors(inode->data.length));
             lock_release(&free_map_lock);
             free(inode->data.name);
+
+            lock_acquire(&buffer_cache_lock);
+                int cache_block_index = buffer_cache_find_sector(inode->sector);
+                if (cache_block_index != -1) {
+                    valid_bits &= ~(1 << cache_block_index);
+                }
+            lock_release(&buffer_cache_lock);
+        } else {
+            lock_acquire(&buffer_cache_lock);
+                int cache_block_index = buffer_cache_find_or_allocate_sector(inode->sector);
+                memcpy(buffer_cache_blocks[cache_block_index], &inode->data, BLOCK_SECTOR_SIZE);
+                dirty_bits |= (1 << cache_block_index);
+            lock_release(&buffer_cache_lock);
+
+            // Maybe flush the buffer cache here but don't know
+            
+            /* for (int i = 0; i < bytes_to_sectors(inode->data.length); i++) {
+                lock_acquire(&buffer_cache_lock);
+                    int cache_block_index = buffer_cache_find_or_allocate_sector(inode->data.start + i);
+                    memcpy(buffer_cache_blocks[cache_block_index], &inode->data, BLOCK_SECTOR_SIZE);
+                    dirty_bits |= (1 << cache_block_index);
+                lock_release(&buffer_cache_lock);
+            } */
         }
+
 
         free(inode);
     } else {

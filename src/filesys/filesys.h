@@ -28,6 +28,7 @@ extern int64_t dirty_bits;
 /* Global filesystem lock. */
 extern struct lock fs_lock;
 extern struct lock buffer_cache_lock;
+extern int64_t valid_bits;
 
 void filesys_init(bool format);
 void filesys_done(void);
@@ -39,6 +40,7 @@ int buffer_cache_find_sector(block_sector_t);
 int buffer_cache_allocate_sector(block_sector_t);
 int buffer_cache_find_or_allocate_sector(block_sector_t);
 int buffer_cache_get_sector(block_sector_t);
+void buffer_cache_flush(void);
 
 struct dir* get_last_dir(const char* path);
 struct dir* get_second_to_last_dir(char* path);

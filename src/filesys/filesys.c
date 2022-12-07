@@ -65,14 +65,7 @@ void filesys_init(bool format) {
    to disk. */
 void filesys_done(void) {
     free_map_close();
-
-    int64_t mask = 1;
-    for (int i = 0; i < NUM_CACHE_BLOCKS; i++) {
-        if ((valid_bits & dirty_bits & mask) != 0) {
-            block_write(fs_device, sector_indices[i], buffer_cache_blocks[i]);
-        }
-        mask <<= 1;
-    }
+    buffer_cache_flush();
 }
 
 /* Creates a file named NAME with the given INITIAL_SIZE.
@@ -195,6 +188,18 @@ int buffer_cache_get_sector(block_sector_t sector_idx) {
         block_read(fs_device, sector_idx, buffer_cache_blocks[result]);
         return result;
     }
+}
+
+void buffer_cache_flush(void) {
+    int64_t mask = 1;
+    dirty_bits &= valid_bits;
+    for (int i = 0; i < NUM_CACHE_BLOCKS; i++) {
+        if ((dirty_bits & mask) != 0) {
+            block_write(fs_device, sector_indices[i], buffer_cache_blocks[i]);
+        }
+        mask <<= 1;
+    }
+    dirty_bits = 0;
 }
 
 /* Extracts a file name part from *SRCP into PART, and updates *SRCP so that the
