@@ -317,7 +317,7 @@ bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t init
         if (success) {
             char absolutePath[496];
             snprintf(absolutePath, strlen(dir->inode->data.name) + strlen(path+index) + 2, "%s/%s", dir->inode->data.name, path+index);
-            if (inode_create(absolutePath ,inode_sector, initial_size) && dir_add(dir, path + index, inode_sector)) {
+            if (inode_create(absolutePath, inode_sector, initial_size) && dir_add(dir, path + index, inode_sector)) {
                 success = true;
             } else {
                 success = false;
