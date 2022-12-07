@@ -211,7 +211,31 @@ void inode_close(struct inode* inode) {
             inode_deallocate(&inode->data);
             
             free(inode->data.name);
+
+            lock_acquire(&buffer_cache_lock);
+                int cache_block_index = buffer_cache_find_sector(inode->sector);
+                if (cache_block_index != -1) {
+                    valid_bits &= ~(1 << cache_block_index);
+                }
+            lock_release(&buffer_cache_lock);
+        } else {
+            lock_acquire(&buffer_cache_lock);
+                int cache_block_index = buffer_cache_find_or_allocate_sector(inode->sector);
+                memcpy(buffer_cache_blocks[cache_block_index], &inode->data, BLOCK_SECTOR_SIZE);
+                dirty_bits |= (1 << cache_block_index);
+            lock_release(&buffer_cache_lock);
+
+            // Maybe flush the buffer cache here but don't know
+            
+            /* for (int i = 0; i < bytes_to_sectors(inode->data.length); i++) {
+                lock_acquire(&buffer_cache_lock);
+                    int cache_block_index = buffer_cache_find_or_allocate_sector(inode->data.start + i);
+                    memcpy(buffer_cache_blocks[cache_block_index], &inode->data, BLOCK_SECTOR_SIZE);
+                    dirty_bits |= (1 << cache_block_index);
+                lock_release(&buffer_cache_lock);
+            } */
         }
+
 
         free(inode);
     } else {
@@ -221,45 +245,11 @@ void inode_close(struct inode* inode) {
 
 /* Marks INODE to be deleted when it is closed by the last caller who
    has it open. */
-bool inode_remove(struct inode* inode) {
+void inode_remove(struct inode* inode) {
     ASSERT(inode != NULL);
-    if(strcmp(inode->data.name, "/0/0/2") == 0){
-        char* a;
-        int b = 2;
-    }
-    if(strcmp(inode->data.name, "/0/0") == 0){
-        char* a;
-        int b = 2;
-    }
     lock_acquire(&inode->access_lock);
-    // char absolutePath[strlen(inode->data.name)+2];
-    // snprintf(absolutePath, strlen(inode->data.name)+2, "%s/", inode->data.name)
-    struct list_elem* e;
-    char* path = inode->data.name;
-    
-    for (e = list_begin(&open_inodes); e != list_end(&open_inodes); e = list_next(e)){
-      char* pathCMP = list_entry(e, struct inode, elem)->data.name;
-      if(strlen(path) >= strlen(pathCMP)){
-        continue;
-      }else{
-        for(uint32_t i = 0; i < strlen(path); i++){
-          if(path[i] != pathCMP[i]){
-            goto outerLoop;
-          }
-        }
-        if(pathCMP[strlen(path)] == '/'){
-          lock_release(&inode->access_lock);
-          return false;
-          // return;
-        }
-      }
-      outerLoop:;
-      
-    }
-    inode->removed = true;
+        inode->removed = true;
     lock_release(&inode->access_lock);
-    return true;
-    // return;
 }
 
 /* Reads SIZE bytes from INODE into BUFFER, starting at position OFFSET.

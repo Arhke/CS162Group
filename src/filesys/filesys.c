@@ -65,14 +65,7 @@ void filesys_init(bool format) {
    to disk. */
 void filesys_done(void) {
     free_map_close();
-
-    int64_t mask = 1;
-    for (int i = 0; i < NUM_CACHE_BLOCKS; i++) {
-        if ((valid_bits & dirty_bits & mask) != 0) {
-            block_write(fs_device, sector_indices[i], buffer_cache_blocks[i]);
-        }
-        mask <<= 1;
-    }
+    buffer_cache_flush();
 }
 
 /* Creates a file named NAME with the given INITIAL_SIZE.
@@ -118,9 +111,36 @@ bool filesys_remove(const char* name) {
     struct dir* dir;
     bool success = mkdir_helper((char*) name, &dir, &file_to_remove);
     if (!success)
-      return false;
+        return false;
 
-    /* TODO: Need to disallow if CWD or open */
+    /* Disallow if dir has entries other than . and .. */
+    struct inode* inode;
+    if (dir_lookup(dir, file_to_remove, &inode)) {
+        if (inode->data.is_dir) {
+            struct dir* dir_to_remove = dir_open(inode);
+
+            char dir_name[NAME_MAX + 1];
+            while (success) {
+                success = dir_readdir(dir_to_remove, dir_name);
+                if (!success) {
+                    break;
+                }
+                if (strcmp(dir_name, ".") == 0 || strcmp(dir_name, "..") == 0) {
+                    continue;
+                } else {
+                    /* dir has something in it besides . and .., block remove */
+                    dir_close(dir_to_remove);
+                    dir_close(dir);
+                    return false;
+                }
+            }
+
+            dir_close(dir_to_remove);
+        } else {
+            inode_close(inode);
+        }
+    }
+
 
     success = dir != NULL && dir_remove(dir, file_to_remove);
     dir_close(dir);
@@ -197,158 +217,176 @@ int buffer_cache_get_sector(block_sector_t sector_idx) {
     }
 }
 
+void buffer_cache_flush(void) {
+    int64_t mask = 1;
+    dirty_bits &= valid_bits;
+    for (int i = 0; i < NUM_CACHE_BLOCKS; i++) {
+        if ((dirty_bits & mask) != 0) {
+            block_write(fs_device, sector_indices[i], buffer_cache_blocks[i]);
+        }
+        mask <<= 1;
+    }
+    dirty_bits = 0;
+}
+
 /* Extracts a file name part from *SRCP into PART, and updates *SRCP so that the
    next call will return the next file name part. Returns 1 if successful, 0 at
    end of string, -1 for a too-long file name part. */
 static int get_next_part(char part[NAME_MAX + 1], const char** srcp) {
-  const char* src = *srcp;
-  char* dst = part;
+    const char* src = *srcp;
+    char* dst = part;
 
-  /* Skip leading slashes.  If it's all slashes, we're done. */
-  while (*src == '/')
-    src++;
-  if (*src == '\0')
-    return 0;
+    /* Skip leading slashes.  If it's all slashes, we're done. */
+    while (*src == '/')
+        src++;
+    if (*src == '\0')
+        return 0;
 
-  /* Copy up to NAME_MAX character from SRC to DST.  Add null terminator. */
-  while (*src != '/' && *src != '\0') {
-    if (dst < part + NAME_MAX)
-      *dst++ = *src;
-    else
-      return -1;
-    src++;
-  }
-  *dst = '\0';
+    /* Copy up to NAME_MAX character from SRC to DST.  Add null terminator. */
+    while (*src != '/' && *src != '\0') {
+        if (dst < part + NAME_MAX)
+            *dst++ = *src;
+        else
+            return -1;
+        src++;
+    }
+    *dst = '\0';
 
-  /* Advance source pointer. */
-  *srcp = src;
-  return 1;
+    /* Advance source pointer. */
+    *srcp = src;
+    return 1;
 }
 
 struct dir* get_last_dir(const char* path) {
-  struct dir* dir;
-  if (path[0] == '/') {
-    dir = dir_open_root();
-  } else {
-    dir = dir_reopen(thread_current()->pcb->cwd);
-  }
-  char part[NAME_MAX + 1];
-  int valid = 0;
-  struct inode* inode;
-  while ((valid = get_next_part(part, &path))) {
-    if (dir_lookup(dir, part, &inode)) {
-      dir_close(dir);
-      dir = dir_open(inode);
+    struct dir* dir;
+    if (path[0] == '/') {
+        dir = dir_open_root();
     } else {
-      /* Path doesn't exist, close current dir and return NULL */
-      dir_close(dir);
-      return NULL;
+        dir = dir_reopen(thread_current()->pcb->cwd);
     }
-  }
+    char part[NAME_MAX + 1];
+    int valid = 0;
+    struct inode* inode;
+    while ((valid = get_next_part(part, &path))) {
+        if (dir_lookup(dir, part, &inode)) {
+            dir_close(dir);
+            dir = dir_open(inode);
+        } else {
+            /* Path doesn't exist, close current dir and return NULL */
+            dir_close(dir);
+            return NULL;
+        }
+    }
 
-  if (valid == -1) {
-    dir_close(dir);
-    return NULL;
-  }
+    if (valid == -1) {
+        dir_close(dir);
+        return NULL;
+    }
 
-  return dir;
+    return dir;
 }
 
 bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t initial_size) {
-  for (uint32_t i = index; i < strlen(path); i++) {
-    if (path[i] == '/') {
-      /* Update dir and recursive call, then break and return */
-      char new_dir_name[NAME_MAX + 1]; 
-      strlcpy(new_dir_name, path + index, i - index + 1);
-      struct inode* inode;
-      if (dir_lookup(dir, new_dir_name, &inode)) {
-        dir_close(dir);
-        dir = dir_open(inode);
-      } else {
-        dir_close(dir);
+    if (dir == NULL || dir->inode->removed) {
         return false;
-      }
-      return create_helper(dir, path, i + 1, initial_size);
     }
-  }
+    for (uint32_t i = index; i < strlen(path); i++) {
+        if (path[i] == '/') {
+            /* Update dir and recursive call, then break and return */
+            char new_dir_name[NAME_MAX + 1]; 
+            strlcpy(new_dir_name, path + index, i - index + 1);
+            struct inode* inode;
+            if (dir_lookup(dir, new_dir_name, &inode)) {
+                dir_close(dir);
+                dir = dir_open(inode);
+            } else {
+                dir_close(dir);
+                return false;
+            }
+            return create_helper(dir, path, i + 1, initial_size);
+        }
+    }
 
-  /* Make file in cur_dir */
-  block_sector_t inode_sector = 0;
-  bool success = dir != NULL;
-  if (success) {
-      lock_acquire(&free_map_lock);
-          success = free_map_allocate(1, &inode_sector);
-      lock_release(&free_map_lock);
-      if (success) {
-        char absolutePath[496];
-        snprintf(absolutePath, strlen(dir->inode->data.name) + strlen(path+index) + 2, "%s/%s", dir->inode->data.name, path+index);
-          if (inode_create(absolutePath ,inode_sector, initial_size) && dir_add(dir, path + index, inode_sector)) {
-              success = true;
-          } else {
-              success = false;
-              lock_acquire(&free_map_lock);
-                  free_map_release(inode_sector, 1);
-              lock_release(&free_map_lock);
-          }
-      }
-  }
-  dir_close(dir);
-  return success;
+    /* Make file in cur_dir */
+    block_sector_t inode_sector = 0;
+    bool success = dir != NULL;
+    if (success) {
+        lock_acquire(&free_map_lock);
+            success = free_map_allocate(1, &inode_sector);
+        lock_release(&free_map_lock);
+        if (success) {
+            char absolutePath[496];
+            snprintf(absolutePath, strlen(dir->inode->data.name) + strlen(path+index) + 2, "%s/%s", dir->inode->data.name, path+index);
+            if (inode_create(absolutePath ,inode_sector, initial_size) && dir_add(dir, path + index, inode_sector)) {
+                success = true;
+            } else {
+                success = false;
+                lock_acquire(&free_map_lock);
+                    free_map_release(inode_sector, 1);
+                lock_release(&free_map_lock);
+            }
+        }
+    }
+    dir_close(dir);
+    return success;
 }
 
 struct inode* open_helper(struct dir* dir, const char* path, uint32_t index) {
-  for (uint32_t i = index; i < strlen(path); i++) {
-    if (path[i] == '/') {
-      /* Update dir and recursive call, then break and return */
-      char new_dir_name[NAME_MAX + 1]; 
-      strlcpy(new_dir_name, path + index, i - index + 1);
-      struct inode* inode;
-      if (dir_lookup(dir, new_dir_name, &inode)) {
-        dir_close(dir);
-        dir = dir_open(inode);
-      } else {
-        dir_close(dir);
+    if (dir == NULL || dir->inode->removed) {
         return NULL;
-      }
-      return open_helper(dir, path, i + 1);
     }
-  }
+    for (uint32_t i = index; i < strlen(path); i++) {
+        if (path[i] == '/') {
+            /* Update dir and recursive call, then break and return */
+            char new_dir_name[NAME_MAX + 1]; 
+            strlcpy(new_dir_name, path + index, i - index + 1);
+            struct inode* inode;
+            if (dir_lookup(dir, new_dir_name, &inode)) {
+                dir_close(dir);
+                dir = dir_open(inode);
+            } else {
+                dir_close(dir);
+                return NULL;
+            }
+            return open_helper(dir, path, i + 1);
+        }
+    }
 
-  struct inode* inode;
-  if (dir != NULL)
-    dir_lookup(dir, path + index, &inode);
-  dir_close(dir);
-  return inode;
+    struct inode* inode;
+    if (dir != NULL)
+        dir_lookup(dir, path + index, &inode);
+    dir_close(dir);
+    return inode;
 }
 
 struct dir* get_second_to_last_dir(char* path) {
-  int last_slash = -1;
-  for (int i = 0; i < (int) strlen(path); i++) {
-    if (path[i] == '/')
-      last_slash = i;
-  }
-  if (last_slash <= 0)
-    return dir_open_root();
-  path[last_slash] = '\0';
-  return get_last_dir((const char*) path);
+    int last_slash = -1;
+    for (int i = 0; i < (int) strlen(path); i++) {
+        if (path[i] == '/')
+        last_slash = i;
+    }
+    if (last_slash <= 0)
+        return dir_open_root();
+    path[last_slash] = '\0';
+    return get_last_dir((const char*) path);
 }
 
 bool mkdir_helper(char* path, struct dir** dir, char** file_name) {
-  int last_slash = -1;
-  for (int i = 0; i < (int) strlen(path); i++) {
-    if (path[i] == '/')
-      last_slash = i;
-  }
-  if (last_slash == -1) {
-    *dir = dir_reopen(thread_current()->pcb->cwd);
-    *file_name = path;
-  } else if (last_slash == 0) {
-    *dir = dir_open_root();
-    *file_name = path + 1;
-  } else {
-    path[last_slash] = '\0';
-    *dir = get_last_dir(path);
-    *file_name = path + last_slash + 1;
-  }
-  return true;
+    int last_slash = -1;
+    for (int i = 0; i < (int) strlen(path); i++) {
+        if (path[i] == '/')
+            last_slash = i;
+    }
+    if (last_slash == -1) {
+        *dir = dir_reopen(thread_current()->pcb->cwd);
+        *file_name = path;
+    } else if (last_slash == 0) {
+        *dir = dir_open_root();
+        *file_name = path + 1;
+    } else {
+        path[last_slash] = '\0';
+        *dir = get_last_dir(path);
+        *file_name = path + last_slash + 1;
+    }
+    return true;
 }
