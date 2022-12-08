@@ -396,7 +396,7 @@ bool inode_resize(struct inode_disk* id, off_t size);
 bool inode_deallocate(struct inode_disk *id);
 
 
-/* Allows for file growth */
+/* Allows for file growth, like Cho-Gath! */
 bool inode_resize(struct inode_disk* id, off_t size) {
     if (size < 0) {
         return false;
