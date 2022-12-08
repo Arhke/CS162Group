@@ -169,7 +169,8 @@ bool dir_remove(struct dir* dir, const char* name) {
             goto done;
 
         /* Remove inode. */
-        success = inode_remove(inode);
+        inode_remove(inode);
+        success = true;
 done:
     inode_close(inode);
     lock_release(&dir->inode->directory_lock);
