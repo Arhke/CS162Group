@@ -438,7 +438,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
     }
 
     /* Indirect Pointers */
-    block_sector_t* buffer = calloc(1, sizeof(block_sector_t) * INDIRECT_BLOCK_SIZE);
+    block_sector_t* buffer = calloc(1, BLOCK_SECTOR_SIZE);
     memset(buffer, 0, BLOCK_SECTOR_SIZE);
     if (id->indirect_pointer == 0) {
         /* Allocate indirect block */
@@ -576,7 +576,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
 
     /* Indirect Pointers from Doubly-Indirect Block */
     for (int i = 0; i < num_indirect_blocks; i++) {
-        block_sector_t second_buffer[INDIRECT_BLOCK_SIZE];
+        block_sector_t* second_buffer = calloc(1, BLOCK_SECTOR_SIZE);
         memset(second_buffer, 0, BLOCK_SECTOR_SIZE);
         if (buffer[i] == 0) {
             /* Allocate indirect block */
@@ -644,78 +644,10 @@ bool inode_resize(struct inode_disk* id, off_t size) {
     return true;
 }
 
-/* This uses the same logic as inode_resize(), except replace allocate with release */
+/* Shrinks disk_inode to 0, effectively deallocating it. */
 bool inode_deallocate(struct inode_disk *id) {
-    /* Direct Pointers */
-    for (int i = 0; i < NUM_DIRECT_POINTERS; i++) {
-        lock_acquire(&free_map_lock);
-            free_map_release(id->direct_pointers[i], 1);
-        lock_release(&free_map_lock);
-    }
-    
-    /* Check if indirect pointer exists */
-    if (id->indirect_pointer == 0 && id->length <= NUM_DIRECT_POINTERS * BLOCK_SECTOR_SIZE) {
-        return true;
-    }
-
-    /* Indirect Pointer */
-    block_sector_t buffer[INDIRECT_BLOCK_SIZE];
-    memset(buffer, 0, BLOCK_SECTOR_SIZE);
-    
-    /* Read in indirect block */
-    lock_acquire(&buffer_cache_lock);
-        void *cache_block = buffer_cache_blocks[buffer_cache_get_sector(id->indirect_pointer)];
-        memcpy(buffer, cache_block, BLOCK_SECTOR_SIZE);
-    lock_release(&buffer_cache_lock);
-    
-    for (int i = 0; i < INDIRECT_BLOCK_SIZE; i++) {
-        lock_acquire(&free_map_lock);
-            free_map_release(buffer[i], 1);
-        lock_release(&free_map_lock);
-    }
-
-    /* Check if doubly-indirect pointer exists */
-    if (id->doubly_indirect_pointer == 0 && id->length <= (NUM_DIRECT_POINTERS + INDIRECT_BLOCK_SIZE) * BLOCK_SECTOR_SIZE) {
-        return true;
-    }
-
-    /* Doubly-Indirect Pointer */
-    memset(buffer, 0, BLOCK_SECTOR_SIZE);
-
-    /* Read in doubly-indirect block */
-    lock_acquire(&buffer_cache_lock);
-        cache_block = buffer_cache_blocks[buffer_cache_get_sector(id->doubly_indirect_pointer)];
-        memcpy(buffer, cache_block, BLOCK_SECTOR_SIZE);
-    lock_release(&buffer_cache_lock);
-    
-    /* Indirect Blocks from Doubly-Indirect Pointer */
-    block_sector_t second_buffer[INDIRECT_BLOCK_SIZE];
-    memset(second_buffer, 0, BLOCK_SECTOR_SIZE);
-
-    for (int i = 0; i < INDIRECT_BLOCK_SIZE; i++) {
-        /* Read in indirect block */
-        lock_acquire(&buffer_cache_lock);
-            cache_block = buffer_cache_blocks[buffer_cache_get_sector(buffer[i])];
-            memcpy(second_buffer, cache_block, BLOCK_SECTOR_SIZE);
-        lock_release(&buffer_cache_lock);
-
-        for (int j = 0; j < INDIRECT_BLOCK_SIZE; j++) {
-            lock_acquire(&free_map_lock);
-                free_map_release(second_buffer[j], 1);
-            lock_release(&free_map_lock);
-        }
-    }
-
-    for (int i = 0; i < INDIRECT_BLOCK_SIZE; i++) {
-        lock_acquire(&free_map_lock);
-            free_map_release(buffer[i], 1);
-        lock_release(&free_map_lock);
-    }
-
-    return true;
+    return inode_resize(id, 0);
 }
-
-
 
 /* Returns true if an inode is a directory, or false if it's a file */
 bool inode_is_dir(struct inode* inode) {
