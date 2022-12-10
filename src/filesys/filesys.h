@@ -12,8 +12,6 @@
 #define FREE_MAP_SECTOR 0 /* Free map file inode sector. */
 #define ROOT_DIR_SECTOR 1 /* Root directory file inode sector. */
 
-#define NUM_CACHE_BLOCKS 64
-#define bitnum(n) (63 - __builtin_clzll(n))
 
 struct fdt_entry {
     struct dir* dir;
@@ -22,25 +20,15 @@ struct fdt_entry {
 
 /* Block device that contains the file system. */
 extern struct block* fs_device;
-extern void *buffer_cache_blocks[NUM_CACHE_BLOCKS];
-extern int64_t dirty_bits;
 
 /* Global filesystem lock. */
 extern struct lock fs_lock;
-extern struct lock buffer_cache_lock;
-extern int64_t valid_bits;
 
 void filesys_init(bool format);
 void filesys_done(void);
 bool filesys_create(const char* name, off_t initial_size);
 struct file* filesys_open(const char* name);
 bool filesys_remove(const char* name);
-
-int buffer_cache_find_sector(block_sector_t);
-int buffer_cache_allocate_sector(block_sector_t);
-int buffer_cache_find_or_allocate_sector(block_sector_t);
-int buffer_cache_get_sector(block_sector_t);
-void buffer_cache_flush(void);
 
 struct dir* get_last_dir(const char* path);
 bool create_helper(const char* path, off_t initial_size, bool is_dir);

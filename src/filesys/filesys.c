@@ -7,6 +7,7 @@
 #include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
+#include "filesys/buffer.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "userprog/process.h"
@@ -15,16 +16,6 @@
 
 
 struct lock fs_lock; /* Global filesystem lock */
-struct lock buffer_cache_lock;
-
-char buffer_cache_space[NUM_CACHE_BLOCKS << 9];
-void *buffer_cache_blocks[NUM_CACHE_BLOCKS];
-block_sector_t sector_indices[NUM_CACHE_BLOCKS];
-int64_t dirty_bits;
-int64_t valid_bits;
-int64_t access_bits;
-int64_t clock_hand;
-
 
 /* Partition that contains the file system. */
 struct block* fs_device;
@@ -36,12 +27,7 @@ static int get_next_part(char part[NAME_MAX + 1], const char** srcp);
    If FORMAT is true, reformats the file system. */
 void filesys_init(bool format) {
     lock_init(&fs_lock);
-    lock_init(&buffer_cache_lock);
-    for (int i = 0; i < NUM_CACHE_BLOCKS; i++) {
-        buffer_cache_blocks[i] = (void *) (buffer_cache_space + (i << 9));
-    }
-    valid_bits = 0;
-    clock_hand = 0;
+    buffer_cache_init();
 
     fs_device = block_get_role(BLOCK_FILESYS);
     if (fs_device == NULL)
@@ -144,77 +130,6 @@ static void do_format(void) {
         PANIC("root directory creation failed");
     free_map_close();
     printf("done.\n");
-}
-
-int buffer_cache_find_sector(block_sector_t sector_idx) {
-    // ASSERT(lock_held_by_current_thread(&fs_lock));
-    int64_t mask = 1ULL;
-    for (int i = 0; i < NUM_CACHE_BLOCKS; i++) {
-        if ((valid_bits & mask) != 0 && sector_indices[i] == sector_idx) {
-            access_bits |= mask;
-            return i;
-        }
-        mask <<= 1;
-    }
-    return -1;
-}
-
-int buffer_cache_allocate_sector(block_sector_t sector_idx) {
-    // ASSERT(lock_held_by_current_thread(&fs_lock));
-    access_bits &= valid_bits;
-    int64_t mask = 1ULL << clock_hand;
-
-    int64_t old_access_bits = access_bits;
-    access_bits += mask;
-    mask = access_bits & ~old_access_bits;
-    if (mask == 0) {
-        old_access_bits = access_bits;
-        access_bits++;
-        mask = access_bits & ~old_access_bits;
-    }
-    clock_hand = bitnum(mask);
-    int64_t cache_block_num = clock_hand;
-
-    if ((valid_bits & dirty_bits & mask) != 0) {
-        block_write(fs_device, sector_indices[cache_block_num], buffer_cache_blocks[cache_block_num]);
-    }
-    sector_indices[cache_block_num] = sector_idx;
-    valid_bits |= mask;
-    dirty_bits &= ~mask;
-    access_bits |= mask;
-    return cache_block_num;
-}
-
-int buffer_cache_find_or_allocate_sector(block_sector_t sector_idx) {
-    int result = buffer_cache_find_sector(sector_idx);
-    if (result != -1) {
-        return result;
-    } else {
-        return buffer_cache_allocate_sector(sector_idx);
-    }
-}
-
-int buffer_cache_get_sector(block_sector_t sector_idx) {
-    int result = buffer_cache_find_sector(sector_idx);
-    if (result != -1) {
-        return result;
-    } else {
-        result = buffer_cache_allocate_sector(sector_idx);
-        block_read(fs_device, sector_idx, buffer_cache_blocks[result]);
-        return result;
-    }
-}
-
-void buffer_cache_flush(void) {
-    int64_t mask = 1ULL;
-    dirty_bits &= valid_bits;
-    for (int i = 0; i < NUM_CACHE_BLOCKS; i++) {
-        if ((dirty_bits & mask) != 0) {
-            block_write(fs_device, sector_indices[i], buffer_cache_blocks[i]);
-        }
-        mask <<= 1;
-    }
-    dirty_bits = 0;
 }
 
 /* Extracts a file name part from *SRCP into PART, and updates *SRCP so that the

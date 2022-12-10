@@ -373,11 +373,7 @@ static void syscall_handler(struct intr_frame *f) {
                 f->eax = false;
             } else {
                 entry = pcb->fdt[fd];
-                if (entry->dir != NULL) {
-                    f->eax = true;
-                } else {
-                    f->eax = false;
-                }
+                f->eax = (entry->dir != NULL);
             }
             break;
         case SYS_READDIR:
