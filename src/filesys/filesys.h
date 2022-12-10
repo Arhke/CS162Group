@@ -13,7 +13,7 @@
 #define ROOT_DIR_SECTOR 1 /* Root directory file inode sector. */
 
 #define NUM_CACHE_BLOCKS 64
-#define bitnum(n) (31 - __builtin_clz(n))
+#define bitnum(n) (63 - __builtin_clzll(n))
 
 struct fdt_entry {
     struct dir* dir;

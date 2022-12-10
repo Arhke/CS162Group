@@ -116,7 +116,7 @@ bool inode_create(block_sector_t sector, off_t length, bool is_dir) {
             lock_acquire(&buffer_cache_lock);
                 cache_block_index = buffer_cache_find_or_allocate_sector(sector);
                 memcpy(buffer_cache_blocks[cache_block_index], disk_inode, BLOCK_SECTOR_SIZE);
-                dirty_bits |= (1 << cache_block_index);
+                dirty_bits |= (1ULL << cache_block_index);
             lock_release(&buffer_cache_lock);
 
             success = true;
@@ -210,25 +210,15 @@ void inode_close(struct inode* inode) {
             lock_acquire(&buffer_cache_lock);
                 int cache_block_index = buffer_cache_find_sector(inode->sector);
                 if (cache_block_index != -1) {
-                    valid_bits &= ~(1 << cache_block_index);
+                    valid_bits &= ~(1ULL << cache_block_index);
                 }
             lock_release(&buffer_cache_lock);
         } else {
             lock_acquire(&buffer_cache_lock);
                 int cache_block_index = buffer_cache_find_or_allocate_sector(inode->sector);
                 memcpy(buffer_cache_blocks[cache_block_index], &inode->data, BLOCK_SECTOR_SIZE);
-                dirty_bits |= (1 << cache_block_index);
+                dirty_bits |= (1ULL << cache_block_index);
             lock_release(&buffer_cache_lock);
-
-            // Maybe flush the buffer cache here but don't know
-            
-            /* for (int i = 0; i < bytes_to_sectors(inode->data.length); i++) {
-                lock_acquire(&buffer_cache_lock);
-                    int cache_block_index = buffer_cache_find_or_allocate_sector(inode->data.start + i);
-                    memcpy(buffer_cache_blocks[cache_block_index], &inode->data, BLOCK_SECTOR_SIZE);
-                    dirty_bits |= (1 << cache_block_index);
-                lock_release(&buffer_cache_lock);
-            } */
         }
 
 
@@ -344,7 +334,7 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
                     }
                     memcpy(buffer_cache_blocks[cache_block_index] + sector_ofs, buffer + bytes_written, chunk_size);
                 }
-                dirty_bits |= (1 << cache_block_index);
+                dirty_bits |= (1ULL << cache_block_index);
             lock_release(&buffer_cache_lock);
 
             /* Advance. */
@@ -479,7 +469,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
         lock_acquire(&buffer_cache_lock);
             void *cache_block = buffer_cache_blocks[buffer_cache_get_sector(id->indirect_pointer)];
             memcpy(cache_block, buffer, BLOCK_SECTOR_SIZE);
-            dirty_bits |= (1 << buffer_cache_get_sector(id->indirect_pointer));
+            dirty_bits |= (1ULL << buffer_cache_get_sector(id->indirect_pointer));
         lock_release(&buffer_cache_lock);
     }
     
@@ -542,7 +532,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
         lock_acquire(&buffer_cache_lock);
             void *cache_block = buffer_cache_blocks[buffer_cache_get_sector(id->doubly_indirect_pointer)];
             memcpy(cache_block, buffer, BLOCK_SECTOR_SIZE);
-            dirty_bits |= (1 << buffer_cache_get_sector(id->doubly_indirect_pointer));
+            dirty_bits |= (1ULL << buffer_cache_get_sector(id->doubly_indirect_pointer));
         lock_release(&buffer_cache_lock);
     }
 
@@ -598,7 +588,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
             lock_acquire(&buffer_cache_lock);
                 void *cache_block = buffer_cache_blocks[buffer_cache_get_sector(buffer[j])];
                 memcpy(cache_block, second_buffer, BLOCK_SECTOR_SIZE);
-                dirty_bits |= (1 << buffer_cache_get_sector(buffer[j]));
+                dirty_bits |= (1ULL << buffer_cache_get_sector(buffer[j]));
             lock_release(&buffer_cache_lock);
         }
         free(second_buffer);

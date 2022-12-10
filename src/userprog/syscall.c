@@ -121,7 +121,11 @@ static void syscall_handler(struct intr_frame *f) {
             int32_t initial_size = args[2];
 
             /* Call filesys_create helper function and store return value in eax */
-            f->eax = filesys_create(file_name, initial_size);
+            if (*file_name == 0) {
+                f->eax = false;
+            } else {
+                f->eax = filesys_create(file_name, initial_size);
+            }
 
             break;
         case SYS_REMOVE:
@@ -352,7 +356,7 @@ static void syscall_handler(struct intr_frame *f) {
             path = (char *) args[1];
             validate_string(f, path);
 
-            if (strlen(path) == 0) {
+            if (*path == 0) {
                 f->eax = false;
             } else {
                 f->eax = dir_create(path, 8 * sizeof(struct dir_entry));

@@ -23,7 +23,7 @@ block_sector_t sector_indices[NUM_CACHE_BLOCKS];
 int64_t dirty_bits;
 int64_t valid_bits;
 int64_t access_bits;
-int clock_hand;
+int64_t clock_hand;
 
 
 /* Partition that contains the file system. */
@@ -71,7 +71,11 @@ void filesys_done(void) {
    Fails if a file named NAME already exists,
    or if internal memory allocation fails. */
 bool filesys_create(const char* path, off_t initial_size) {
-    return create_helper(path, initial_size, false);
+    if (*path == 0) {
+        return false;
+    } else {
+        return create_helper(path, initial_size, false);
+    }
 }
 
 /* Opens the file with the given NAME.
@@ -82,10 +86,10 @@ bool filesys_create(const char* path, off_t initial_size) {
 struct file* filesys_open(const char* name) {
     struct dir* dir;
     if (name[0] == '/') {
-      dir = dir_open_root();
-      name++;
+        dir = dir_open_root();
+        name++;
     } else {
-      dir = dir_reopen(thread_current()->pcb->cwd);
+        dir = dir_reopen(thread_current()->pcb->cwd);
     }
 
     struct inode* inode = open_helper(dir, name, 0);
@@ -110,14 +114,8 @@ bool filesys_remove(const char* name) {
             struct dir* dir_to_remove = dir_open(inode);
 
             char dir_name[NAME_MAX + 1];
-            while (success) {
-                success = dir_readdir(dir_to_remove, dir_name);
-                if (!success) {
-                    break;
-                }
-                if (strcmp(dir_name, ".") == 0 || strcmp(dir_name, "..") == 0) {
-                    continue;
-                } else {
+            while (dir_readdir(dir_to_remove, dir_name)) {
+                if (strcmp(dir_name, ".") && strcmp(dir_name, "..")) {
                     /* dir has something in it besides . and .., block remove */
                     dir_close(dir_to_remove);
                     dir_close(dir);
@@ -150,7 +148,7 @@ static void do_format(void) {
 
 int buffer_cache_find_sector(block_sector_t sector_idx) {
     // ASSERT(lock_held_by_current_thread(&fs_lock));
-    int64_t mask = 1;
+    int64_t mask = 1ULL;
     for (int i = 0; i < NUM_CACHE_BLOCKS; i++) {
         if ((valid_bits & mask) != 0 && sector_indices[i] == sector_idx) {
             access_bits |= mask;
@@ -164,9 +162,9 @@ int buffer_cache_find_sector(block_sector_t sector_idx) {
 int buffer_cache_allocate_sector(block_sector_t sector_idx) {
     // ASSERT(lock_held_by_current_thread(&fs_lock));
     access_bits &= valid_bits;
-    int mask = 1 << clock_hand;
+    int64_t mask = 1ULL << clock_hand;
 
-    int old_access_bits = access_bits;
+    int64_t old_access_bits = access_bits;
     access_bits += mask;
     mask = access_bits & ~old_access_bits;
     if (mask == 0) {
@@ -175,7 +173,7 @@ int buffer_cache_allocate_sector(block_sector_t sector_idx) {
         mask = access_bits & ~old_access_bits;
     }
     clock_hand = bitnum(mask);
-    int cache_block_num = clock_hand;
+    int64_t cache_block_num = clock_hand;
 
     if ((valid_bits & dirty_bits & mask) != 0) {
         block_write(fs_device, sector_indices[cache_block_num], buffer_cache_blocks[cache_block_num]);
@@ -208,7 +206,7 @@ int buffer_cache_get_sector(block_sector_t sector_idx) {
 }
 
 void buffer_cache_flush(void) {
-    int64_t mask = 1;
+    int64_t mask = 1ULL;
     dirty_bits &= valid_bits;
     for (int i = 0; i < NUM_CACHE_BLOCKS; i++) {
         if ((dirty_bits & mask) != 0) {
@@ -279,32 +277,25 @@ struct dir* get_last_dir(const char* path) {
 bool create_helper(const char* path, off_t initial_size, bool is_dir) {
     struct dir *dir;
     char *file_name;
+    bool success = false;
     if (mkdir_helper(path, &dir, &file_name)) {
-        /* Make file in cur_dir */
         block_sector_t inode_sector;
-        bool success = false;
-        if (dir != NULL) {
-            success = free_map_allocate(1, &inode_sector);
-            if (success) {
-                if ((success = inode_create(inode_sector, initial_size, is_dir))) {
-                    struct inode *inode = inode_open(inode_sector);
-                    dir_add(dir, file_name, inode_sector);
-                    if (is_dir) {
-                        struct dir *new_dir = dir_open(inode);
-                        dir_add(new_dir, ".", inode_sector);
-                        dir_add(new_dir, "..", dir->inode->sector);
-                        dir_close(new_dir);
-                    }
-                } else {
-                    free_map_release(inode_sector, 1);
+        if (!dir->inode->removed && free_map_allocate(1, &inode_sector)) {
+            if ((success = inode_create(inode_sector, initial_size, is_dir) && dir_add(dir, file_name, inode_sector))) {
+                struct inode *inode = inode_open(inode_sector);
+                if (is_dir) {
+                    struct dir *new_dir = dir_open(inode);
+                    dir_add(new_dir, ".", inode_sector);
+                    dir_add(new_dir, "..", dir->inode->sector);
+                    dir_close(new_dir);
                 }
+            } else {
+                free_map_release(inode_sector, 1);
             }
         }
         dir_close(dir);
-        return success;
-    } else {
-        return false;
     }
+    return success;
 }
 
 struct inode* open_helper(struct dir* dir, const char* path, uint32_t index) {
@@ -336,11 +327,8 @@ struct inode* open_helper(struct dir* dir, const char* path, uint32_t index) {
 }
 
 bool mkdir_helper(char* path, struct dir** dir, char** file_name) {
-    int last_slash = -1;
-    for (int i = 0; i < (int) strlen(path); i++) {
-        if (path[i] == '/')
-            last_slash = i;
-    }
+    int last_slash = strlen(path);
+    while (--last_slash >= 0 && path[last_slash] != '/');
     if (last_slash == -1) {
         *file_name = path;
         *dir = dir_reopen(thread_current()->pcb->cwd);
