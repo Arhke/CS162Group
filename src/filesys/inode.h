@@ -19,11 +19,9 @@ struct inode_disk {
     off_t length;         /* File size in bytes. */
     unsigned magic;       /* Magic number. */
 
-    block_sector_t direct_pointers[122];
+    block_sector_t direct_pointers[123];
     block_sector_t indirect_pointer;
     block_sector_t doubly_indirect_pointer;
-    
-    char* name; /* Not used. */
     bool is_dir;
 };
 
@@ -41,7 +39,7 @@ struct inode {
 };
 
 void inode_init(void);
-bool inode_create(char* absolutePath, block_sector_t, off_t);
+bool inode_create(block_sector_t, off_t, bool);
 struct inode* inode_open(block_sector_t);
 struct inode* inode_reopen(struct inode*);
 block_sector_t inode_get_inumber(const struct inode*);

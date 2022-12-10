@@ -43,8 +43,7 @@ int buffer_cache_get_sector(block_sector_t);
 void buffer_cache_flush(void);
 
 struct dir* get_last_dir(const char* path);
-struct dir* get_second_to_last_dir(char* path);
-bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t initial_size);
+bool create_helper(const char* path, off_t initial_size, bool is_dir);
 struct inode* open_helper(struct dir* dir, const char* path, uint32_t index);
 bool mkdir_helper(char* path, struct dir** dir, char** file_name);
 

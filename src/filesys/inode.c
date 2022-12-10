@@ -95,7 +95,7 @@ void inode_init(void) {
    device.
    Returns true if successful.
    Returns false if memory or disk allocation fails. */
-bool inode_create(char* absolutePath, block_sector_t sector, off_t length) {
+bool inode_create(block_sector_t sector, off_t length, bool is_dir) {
     struct inode_disk* disk_inode = NULL;
     bool success = false;
 
@@ -110,9 +110,7 @@ bool inode_create(char* absolutePath, block_sector_t sector, off_t length) {
     if (disk_inode != NULL) {
         disk_inode->length = length;
         disk_inode->magic = INODE_MAGIC;
-        disk_inode->is_dir = false;
-        disk_inode->name = calloc(strlen(absolutePath)+1, 1);
-        strlcpy(disk_inode->name, absolutePath, strlen(absolutePath)+1);
+        disk_inode->is_dir = is_dir;
 
         if (inode_resize(disk_inode, disk_inode->length)) {
             lock_acquire(&buffer_cache_lock);
@@ -205,13 +203,9 @@ void inode_close(struct inode* inode) {
 
         /* Deallocate blocks if removed. */
         if (inode->removed) {
-            lock_acquire(&free_map_lock);
-                free_map_release(inode->sector, 1);
-            lock_release(&free_map_lock);
+            free_map_release(inode->sector, 1);
 
             inode_deallocate(&inode->data);
-            
-            free(inode->data.name);
 
             lock_acquire(&buffer_cache_lock);
                 int cache_block_index = buffer_cache_find_sector(inode->sector);
@@ -408,15 +402,11 @@ bool inode_resize(struct inode_disk* id, off_t size) {
     /* Direct Pointers */
     for (int i = 0; i < NUM_DIRECT_POINTERS; i++) {
         if (size <= BLOCK_SECTOR_SIZE * i && id->direct_pointers[i] != 0) {
-            lock_acquire(&free_map_lock);
-                free_map_release(id->direct_pointers[i], 1);
-            lock_release(&free_map_lock);
+            free_map_release(id->direct_pointers[i], 1);
             
             id->direct_pointers[i] = 0;
         } else if (size > BLOCK_SECTOR_SIZE * i && id->direct_pointers[i] == 0) {
-            lock_acquire(&free_map_lock);
-                free_map_allocate(1, &id->direct_pointers[i]);
-            lock_release(&free_map_lock);
+            free_map_allocate(1, &id->direct_pointers[i]);
 
             /* Return false if unable to allocate sector */
             if (id->direct_pointers[i] == 0) {
@@ -442,9 +432,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
     block_sector_t* buffer = calloc(1, BLOCK_SECTOR_SIZE);
     if (id->indirect_pointer == 0) {
         /* Allocate indirect block */
-        lock_acquire(&free_map_lock);
-            free_map_allocate(1, &id->indirect_pointer);
-        lock_release(&free_map_lock);
+        free_map_allocate(1, &id->indirect_pointer);
 
         /* Return false if unable to allocate sector */
         if (id->indirect_pointer == 0) {
@@ -467,14 +455,10 @@ bool inode_resize(struct inode_disk* id, off_t size) {
 
     for (int i = 0; i < INDIRECT_BLOCK_SIZE; i++) {
         if (size <= (NUM_DIRECT_POINTERS + i) * BLOCK_SECTOR_SIZE && buffer[i] != 0) {
-            lock_acquire(&free_map_lock);
-                free_map_release(buffer[i], 1);
-            lock_release(&free_map_lock);
+            free_map_release(buffer[i], 1);
             buffer[i] = 0;
         } else if (size > (NUM_DIRECT_POINTERS + i) * BLOCK_SECTOR_SIZE && buffer[i] == 0) {
-            lock_acquire(&free_map_lock);
-                free_map_allocate(1, &buffer[i]);
-            lock_release(&free_map_lock);
+            free_map_allocate(1, &buffer[i]);
 
             /* Return false if unable to allocate sector */
             if (buffer[i] == 0) {
@@ -489,9 +473,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
         }
     }
     if (size <= NUM_DIRECT_POINTERS * BLOCK_SECTOR_SIZE) {
-        lock_acquire(&free_map_lock);
-            free_map_release(id->indirect_pointer, 1);
-        lock_release(&free_map_lock);
+        free_map_release(id->indirect_pointer, 1);
         id->indirect_pointer = 0;
     } else {
         lock_acquire(&buffer_cache_lock);
@@ -513,9 +495,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
     buffer = calloc(1, BLOCK_SECTOR_SIZE);
     if (id->doubly_indirect_pointer == 0) {
         /* Allocate doubly-indirect block */
-        lock_acquire(&free_map_lock);
-            free_map_allocate(1, &id->doubly_indirect_pointer);
-        lock_release(&free_map_lock);
+        free_map_allocate(1, &id->doubly_indirect_pointer);
 
         /* Return false if unable to allocate sector */
         if (id->doubly_indirect_pointer == 0) {
@@ -538,14 +518,10 @@ bool inode_resize(struct inode_disk* id, off_t size) {
 
     for (int i = 0; i < INDIRECT_BLOCK_SIZE; i++) {
         if (size <= (NUM_DIRECT_POINTERS + INDIRECT_BLOCK_SIZE + (i * INDIRECT_BLOCK_SIZE)) * BLOCK_SECTOR_SIZE && buffer[i] != 0) {
-            lock_acquire(&free_map_lock);
-                free_map_release(buffer[i], 1);
-            lock_release(&free_map_lock);
+            free_map_release(buffer[i], 1);
             buffer[i] = 0;
         } else if (size > (NUM_DIRECT_POINTERS + INDIRECT_BLOCK_SIZE + (i * INDIRECT_BLOCK_SIZE)) * BLOCK_SECTOR_SIZE && buffer[i] == 0) {
-            lock_acquire(&free_map_lock);
-                free_map_allocate(1, &buffer[i]);
-            lock_release(&free_map_lock);
+            free_map_allocate(1, &buffer[i]);
 
             /* Return false if unable to allocate sector */
             if (buffer[i] == 0) {
@@ -560,9 +536,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
         }
     }
     if (size <= (NUM_DIRECT_POINTERS + INDIRECT_BLOCK_SIZE) * BLOCK_SECTOR_SIZE) {
-        lock_acquire(&free_map_lock);
-            free_map_release(id->doubly_indirect_pointer, 1);
-        lock_release(&free_map_lock);
+        free_map_release(id->doubly_indirect_pointer, 1);
         id->doubly_indirect_pointer = 0;
     } else {
         lock_acquire(&buffer_cache_lock);
@@ -577,9 +551,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
         block_sector_t* second_buffer = calloc(1, BLOCK_SECTOR_SIZE);
         if (buffer[j] == 0) {
             /* Allocate indirect block */
-            lock_acquire(&free_map_lock);
-                free_map_allocate(1, &buffer[j]);
-            lock_release(&free_map_lock);
+            free_map_allocate(1, &buffer[j]);
 
             /* Return false if unable to allocate sector */
             if (buffer[j] == 0) {
@@ -602,14 +574,10 @@ bool inode_resize(struct inode_disk* id, off_t size) {
 
         for (int i = 0; i < INDIRECT_BLOCK_SIZE; i++) {
             if (size <= (NUM_DIRECT_POINTERS + INDIRECT_BLOCK_SIZE + (INDIRECT_BLOCK_SIZE * j) + i) * BLOCK_SECTOR_SIZE && second_buffer[i] != 0) {
-                lock_acquire(&free_map_lock);
-                    free_map_release(second_buffer[i], 1);
-                lock_release(&free_map_lock);
+                free_map_release(second_buffer[i], 1);
                 second_buffer[i] = 0;
             } else if (size > (NUM_DIRECT_POINTERS + INDIRECT_BLOCK_SIZE + (INDIRECT_BLOCK_SIZE * j) + i) * BLOCK_SECTOR_SIZE && second_buffer[i] == 0) {
-                lock_acquire(&free_map_lock);
-                    free_map_allocate(1, &second_buffer[i]);
-                lock_release(&free_map_lock);
+                free_map_allocate(1, &second_buffer[i]);
 
                 /* Return false if unable to allocate sector */
                 if (second_buffer[i] == 0) {
@@ -624,9 +592,7 @@ bool inode_resize(struct inode_disk* id, off_t size) {
             }
         }
         if (size <= (NUM_DIRECT_POINTERS + INDIRECT_BLOCK_SIZE + (INDIRECT_BLOCK_SIZE * j)) * BLOCK_SECTOR_SIZE) {
-            lock_acquire(&free_map_lock);
-                free_map_release(buffer[j], 1);
-            lock_release(&free_map_lock);
+            free_map_release(buffer[j], 1);
             buffer[j] = 0;
         } else {
             lock_acquire(&buffer_cache_lock);

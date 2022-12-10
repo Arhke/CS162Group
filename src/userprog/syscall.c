@@ -354,39 +354,9 @@ static void syscall_handler(struct intr_frame *f) {
 
             if (strlen(path) == 0) {
                 f->eax = false;
-                break;
+            } else {
+                f->eax = dir_create(path, 8 * sizeof(struct dir_entry));
             }
-
-            bool success = filesys_create(path, 8 * sizeof(struct dir_entry));
-            if (!success) {
-                f->eax = false;
-                break;
-            }
-            
-            char* new_dir_name;
-            success = mkdir_helper(path, &dir, &new_dir_name);
-            if (!success) {
-                f->eax = false;
-                break;
-            }
-
-            struct inode* new_dir_inode;
-            success = dir_lookup(dir, new_dir_name, &new_dir_inode);
-            if (!success) {
-                f->eax = false;
-                dir_close(dir);
-                break;
-            }
-           
-            struct dir* new_dir = dir_open(new_dir_inode);
-            success = dir_add(new_dir, ".", inode_get_inumber(new_dir->inode)) && dir_add(new_dir, "..", inode_get_inumber(dir->inode));
-
-            new_dir->inode->data.is_dir = true;
-
-            dir_close(dir);
-            dir_close(new_dir);
-
-            f->eax = success;
 
             break;
         case SYS_ISDIR:

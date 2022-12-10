@@ -56,9 +56,7 @@ void filesys_init(bool format) {
     free_map_open();
 
     /* Set cwd for initial process to the filesystem root */
-    struct process* pcb = thread_current()->pcb;
-    pcb->cwd = dir_open_root();
-    pcb->cwd->inode->data.is_dir = true;
+    struct process* pcb = thread_current()->pcb->cwd = dir_open_root();
 }
 
 /* Shuts down the file system module, writing any unwritten data
@@ -72,16 +70,8 @@ void filesys_done(void) {
    Returns true if successful, false otherwise.
    Fails if a file named NAME already exists,
    or if internal memory allocation fails. */
-bool filesys_create(const char* name, off_t initial_size) {
-    struct dir* dir;
-    if (name[0] == '/') {
-      dir = dir_open_root();
-      name++;
-    } else {
-      dir = dir_reopen(thread_current()->pcb->cwd);
-    }
-
-    return create_helper(dir, name, 0, initial_size);
+bool filesys_create(const char* path, off_t initial_size) {
+    return create_helper(path, initial_size, false);
 }
 
 /* Opens the file with the given NAME.
@@ -152,7 +142,7 @@ bool filesys_remove(const char* name) {
 static void do_format(void) {
     printf("Formatting file system...");
     free_map_create();
-    if (!dir_create("", ROOT_DIR_SECTOR, 16))
+    if (!dir_create("", 16))
         PANIC("root directory creation failed");
     free_map_close();
     printf("done.\n");
@@ -286,49 +276,35 @@ struct dir* get_last_dir(const char* path) {
     return dir;
 }
 
-bool create_helper(struct dir* dir, const char* path, uint32_t index, off_t initial_size) {
-    if (dir == NULL || dir->inode->removed) {
+bool create_helper(const char* path, off_t initial_size, bool is_dir) {
+    struct dir *dir;
+    char *file_name;
+    if (mkdir_helper(path, &dir, &file_name)) {
+        /* Make file in cur_dir */
+        block_sector_t inode_sector;
+        bool success = false;
+        if (dir != NULL) {
+            success = free_map_allocate(1, &inode_sector);
+            if (success) {
+                if ((success = inode_create(inode_sector, initial_size, is_dir))) {
+                    struct inode *inode = inode_open(inode_sector);
+                    dir_add(dir, file_name, inode_sector);
+                    if (is_dir) {
+                        struct dir *new_dir = dir_open(inode);
+                        dir_add(new_dir, ".", inode_sector);
+                        dir_add(new_dir, "..", dir->inode->sector);
+                        dir_close(new_dir);
+                    }
+                } else {
+                    free_map_release(inode_sector, 1);
+                }
+            }
+        }
+        dir_close(dir);
+        return success;
+    } else {
         return false;
     }
-    for (uint32_t i = index; i < strlen(path); i++) {
-        if (path[i] == '/') {
-            /* Update dir and recursive call, then break and return */
-            char new_dir_name[NAME_MAX + 1]; 
-            strlcpy(new_dir_name, path + index, i - index + 1);
-            struct inode* inode;
-            if (dir_lookup(dir, new_dir_name, &inode)) {
-                dir_close(dir);
-                dir = dir_open(inode);
-            } else {
-                dir_close(dir);
-                return false;
-            }
-            return create_helper(dir, path, i + 1, initial_size);
-        }
-    }
-
-    /* Make file in cur_dir */
-    block_sector_t inode_sector = 0;
-    bool success = dir != NULL;
-    if (success) {
-        lock_acquire(&free_map_lock);
-            success = free_map_allocate(1, &inode_sector);
-        lock_release(&free_map_lock);
-        if (success) {
-            char absolutePath[496];
-            snprintf(absolutePath, strlen(dir->inode->data.name) + strlen(path+index) + 2, "%s/%s", dir->inode->data.name, path+index);
-            if (inode_create(absolutePath, inode_sector, initial_size) && dir_add(dir, path + index, inode_sector)) {
-                success = true;
-            } else {
-                success = false;
-                lock_acquire(&free_map_lock);
-                    free_map_release(inode_sector, 1);
-                lock_release(&free_map_lock);
-            }
-        }
-    }
-    dir_close(dir);
-    return success;
 }
 
 struct inode* open_helper(struct dir* dir, const char* path, uint32_t index) {
@@ -359,18 +335,6 @@ struct inode* open_helper(struct dir* dir, const char* path, uint32_t index) {
     return inode;
 }
 
-struct dir* get_second_to_last_dir(char* path) {
-    int last_slash = -1;
-    for (int i = 0; i < (int) strlen(path); i++) {
-        if (path[i] == '/')
-        last_slash = i;
-    }
-    if (last_slash <= 0)
-        return dir_open_root();
-    path[last_slash] = '\0';
-    return get_last_dir((const char*) path);
-}
-
 bool mkdir_helper(char* path, struct dir** dir, char** file_name) {
     int last_slash = -1;
     for (int i = 0; i < (int) strlen(path); i++) {
@@ -378,15 +342,21 @@ bool mkdir_helper(char* path, struct dir** dir, char** file_name) {
             last_slash = i;
     }
     if (last_slash == -1) {
-        *dir = dir_reopen(thread_current()->pcb->cwd);
         *file_name = path;
+        *dir = dir_reopen(thread_current()->pcb->cwd);
+        return true;
     } else if (last_slash == 0) {
-        *dir = dir_open_root();
         *file_name = path + 1;
+        *dir = dir_open_root();
+        return true;
     } else {
-        path[last_slash] = '\0';
-        *dir = get_last_dir(path);
+        char *path_cpy = malloc(strlen(path) + 1);
+        memcpy(path_cpy, path, strlen(path) + 1);
+
+        path_cpy[last_slash] = 0;
         *file_name = path + last_slash + 1;
+        bool success = (*dir = get_last_dir(path_cpy)) != NULL;
+        free(path_cpy);
+        return success;
     }
-    return true;
 }

@@ -9,8 +9,12 @@
 
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
-bool dir_create(char* absolutePath, block_sector_t sector, size_t entry_cnt) {
-    return inode_create(absolutePath, sector, entry_cnt * sizeof(struct dir_entry));
+bool dir_create(char* path, size_t entry_cnt) {
+    if (strlen(path) == 0) {
+        return inode_create(ROOT_DIR_SECTOR, entry_cnt * sizeof(struct dir_entry), true);
+    } else {
+        return create_helper(path, entry_cnt * sizeof(struct dir_entry), true);
+    }
 }
 
 /* Opens and returns the directory for the given INODE, of which
