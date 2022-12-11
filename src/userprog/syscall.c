@@ -47,7 +47,7 @@
 
 static void syscall_handler(struct intr_frame *);
 
-void syscall_init(void) {lock_init(&fs_lock);
+void syscall_init(void) {
     intr_register_int(0x30, 3, INTR_ON, syscall_handler, "syscall");
 }
 
@@ -147,39 +147,31 @@ static void syscall_handler(struct intr_frame *f) {
             /* Find the next open file descriptor in file descriptor table */
             fd = open_fd(pcb);
             /* If no file descriptor is available, return -1 */
-            if (fd == -1) {
-                f->eax = -1;
-            } else {
+            if (fd != -1) {
                 /* Open the file and add the description to the file descriptor 
                     * table at index fd, or return -1 if the file could not be opened 
                     */
                 /* Root case */
                 if (strlen(path) == 1 && path[0] == '/') {
                     struct fdt_entry* new_entry = malloc(sizeof(struct fdt_entry));
-                    new_entry->file = NULL;
-                    new_entry->dir = dir_open_root();
+                    *new_entry = (struct fdt_entry) {dir_open_root(), NULL};
                     pcb->fdt[fd] = new_entry;
-                    f->eax =fd;
-                    break;
-                }
-
-                struct inode* inode = open_helper(path);
-                if (!inode) {
-                    f->eax = -1;
-                    break;
-                }
-
-                struct fdt_entry* new_entry = malloc(sizeof(struct fdt_entry));
-                if (inode->data.is_dir) {
-                    new_entry->dir = dir_open(inode);
-                    new_entry->file = NULL;
                 } else {
-                    new_entry->file = file_open(inode);
-                    new_entry->dir = NULL;
+                    struct inode* inode = open_helper(path);
+                    if (!inode) {
+                        fd = -1;
+                    } else {
+                        struct fdt_entry* new_entry = malloc(sizeof(struct fdt_entry));
+                        if (inode_is_dir(inode)) {
+                            *new_entry = (struct fdt_entry) {dir_open(inode), NULL};
+                        } else {
+                            *new_entry = (struct fdt_entry) {NULL, file_open(inode)};
+                        }
+                        pcb->fdt[fd] = new_entry;
+                    }
                 }
-                pcb->fdt[fd] = new_entry;
-                f->eax = fd;
             }
+            f->eax = fd;
                 
             break;
         case SYS_FILESIZE:
@@ -375,23 +367,12 @@ static void syscall_handler(struct intr_frame *f) {
             fd = args[1];
             char* dir_name = (char *) args[2];
             
-            if (!valid_fd(pcb, fd)) {
-                f->eax = false;
-            } else {
+            f->eax = false;
+            if (valid_fd(pcb, fd)) {
                 entry = pcb->fdt[fd];
-                if (entry->dir == NULL) {
-                    f->eax = false;
-                } else {
-                    bool success = true;
-                    while (success) {
-                        success = dir_readdir(entry->dir, dir_name);
-                        if (!success) {
-                            f->eax = false;
-                            break;
-                        }
-                        if (strcmp(dir_name, ".") == 0 || strcmp(dir_name, "..") == 0) {
-                            continue;
-                        } else {
+                if (entry->dir != NULL) {
+                    while (dir_readdir(entry->dir, dir_name)) {
+                        if (strcmp(dir_name, ".") && strcmp(dir_name, "..")) {
                             f->eax = true;
                             break;
                         }

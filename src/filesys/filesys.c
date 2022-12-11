@@ -16,8 +16,6 @@
 
 
 
-struct lock fs_lock; /* Global filesystem lock */
-
 /* Partition that contains the file system. */
 struct block* fs_device;
 
@@ -27,7 +25,6 @@ static int get_next_part(char part[NAME_MAX + 1], const char** srcp);
 /* Initializes the file system module.
    If FORMAT is true, reformats the file system. */
 void filesys_init(bool format) {
-    lock_init(&fs_lock);
     buffer_cache_init();
 
     fs_device = block_get_role(BLOCK_FILESYS);
@@ -51,13 +48,6 @@ void filesys_init(bool format) {
 void filesys_done(void) {
     free_map_close();
     buffer_cache_flush();
-
-    /* while (!list_empty(&open_inodes)) {
-        struct inode *inode = list_entry(list_pop_back(&open_inodes), struct inode, elem);
-        ASSERT(inode->open_cnt > 0);
-        inode->open_cnt = 1;
-        inode_close(inode);
-    } */
 }
 
 /* Creates a file named NAME with the given INITIAL_SIZE.
@@ -95,7 +85,7 @@ bool filesys_remove(const char* name) {
     /* Disallow if dir has entries other than . and .. */
     struct inode* inode;
     if (dir_lookup(dir, file_to_remove, &inode)) {
-        if (inode->data.is_dir) {
+        if (inode_is_dir(inode)) {
             struct dir* dir_to_remove = dir_open(inode);
 
             char dir_name[NAME_MAX + 1];

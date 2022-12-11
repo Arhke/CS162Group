@@ -304,12 +304,13 @@ void process_exit(int exit_code) {
     struct fdt_entry* entry;
     for (int i = 2; i < MAX_FD_NUM; i++) {
         entry = cur->fdt[i];
-        if (entry == NULL)
-            continue;
-        if (entry->file != NULL) {
-            file_close(entry->file);
-        } else if (entry->dir != NULL) {
-            dir_close(entry->dir);
+        if (entry != NULL) {
+            if (entry->file != NULL) {
+                file_close(entry->file);
+            } else if (entry->dir != NULL) {
+                dir_close(entry->dir);
+            }
+            free(entry);
         }
     }
 
