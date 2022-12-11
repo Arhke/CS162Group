@@ -8,7 +8,8 @@
    All IDE disks use this sector size, as do most USB and SCSI
    disks.  It's not worth it to try to cater to other sector
    sizes in Pintos (yet). */
-#define BLOCK_SECTOR_SIZE 512
+#define BLOCK_SECTOR_BITS 9
+#define BLOCK_SECTOR_SIZE (1 << BLOCK_SECTOR_BITS)
 
 /* Index of a block device sector.
    Good enough for devices up to 2 TB. */

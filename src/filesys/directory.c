@@ -196,7 +196,6 @@ bool dir_readdir(struct dir* dir, char name[NAME_MAX + 1]) {
             return true;
         }
     }
-    name[0] = 0;
     lock_release(&dir->inode->directory_lock);
     return false;
 }

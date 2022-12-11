@@ -10,7 +10,7 @@
 
 static struct lock buffer_cache_lock;
 
-static char buffer_cache_space[NUM_CACHE_BLOCKS << 9];
+static char buffer_cache_space[NUM_CACHE_BLOCKS << BLOCK_SECTOR_BITS];
 static void *buffer_cache_blocks[NUM_CACHE_BLOCKS];
 static block_sector_t sector_indices[NUM_CACHE_BLOCKS];
 static int64_t dirty_bits;
@@ -22,7 +22,7 @@ static int64_t clock_hand;
 void buffer_cache_init(void) {
     lock_init(&buffer_cache_lock);
     for (int i = 0; i < NUM_CACHE_BLOCKS; i++) {
-        buffer_cache_blocks[i] = (void *) (buffer_cache_space + (i << 9));
+        buffer_cache_blocks[i] = (void *) (buffer_cache_space + (i << BLOCK_SECTOR_BITS));
     }
     valid_bits = 0;
     clock_hand = 0;

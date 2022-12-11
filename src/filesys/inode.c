@@ -274,6 +274,7 @@ off_t inode_write_at(struct inode* inode, const void* buffer_, off_t size, off_t
 
         if (byte_to_sector(inode_data, offset + size - 1) == (block_sector_t) -1) {
             if (!inode_resize(inode_data, offset + size)) {
+                lock_release(&inode->access_lock);
                 return 0;
             }
 
