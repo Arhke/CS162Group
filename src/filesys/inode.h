@@ -8,6 +8,7 @@
 #include "lib/kernel/list.h"
 
 struct bitmap;
+extern struct list open_inodes;
 
 struct indirect_block {
     block_sector_t blocks[128];

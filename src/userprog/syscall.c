@@ -163,15 +163,7 @@ static void syscall_handler(struct intr_frame *f) {
                     break;
                 }
 
-                struct dir* dir;
-                if (path[0] == '/') {
-                    dir = dir_open_root();
-                    path++;
-                } else {
-                    dir = dir_reopen(thread_current()->pcb->cwd);
-                }
-
-                struct inode* inode = open_helper(dir, path, 0);
+                struct inode* inode = open_helper(path);
                 if (!inode) {
                     f->eax = -1;
                     break;
@@ -343,6 +335,7 @@ static void syscall_handler(struct intr_frame *f) {
 
             dir = get_last_dir((const char*) path);
             if (dir != NULL) {
+                dir_close(pcb->cwd);
                 pcb->cwd = dir;
                 f->eax = true;
             } else {

@@ -35,7 +35,7 @@ void fsutil_cat(char** argv) {
   char* buffer;
 
   printf("Printing '%s' to the console...\n", file_name);
-  file = filesys_open(file_name);
+  file = file_open(filesys_open(file_name));
   if (file == NULL)
     PANIC("%s: open failed", file_name);
   buffer = palloc_get_page(PAL_ASSERT);

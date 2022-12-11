@@ -11,6 +11,7 @@
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "userprog/process.h"
+#include "lib/kernel/list.h"
 #include <stdlib.h>
 
 
@@ -50,6 +51,13 @@ void filesys_init(bool format) {
 void filesys_done(void) {
     free_map_close();
     buffer_cache_flush();
+
+    /* while (!list_empty(&open_inodes)) {
+        struct inode *inode = list_entry(list_pop_back(&open_inodes), struct inode, elem);
+        ASSERT(inode->open_cnt > 0);
+        inode->open_cnt = 1;
+        inode_close(inode);
+    } */
 }
 
 /* Creates a file named NAME with the given INITIAL_SIZE.
@@ -69,17 +77,8 @@ bool filesys_create(const char* path, off_t initial_size) {
    otherwise.
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
-struct file* filesys_open(const char* name) {
-    struct dir* dir;
-    if (name[0] == '/') {
-        dir = dir_open_root();
-        name++;
-    } else {
-        dir = dir_reopen(thread_current()->pcb->cwd);
-    }
-
-    struct inode* inode = open_helper(dir, name, 0);
-    return file_open(inode);
+struct file *filesys_open(const char* name) {
+    return file_open(open_helper(name));
 }
 
 /* Deletes the file named NAME.
@@ -193,9 +192,9 @@ bool create_helper(const char* path, off_t initial_size, bool is_dir) {
     struct dir *dir;
     char *file_name;
     bool success = false;
-    if (mkdir_helper(path, &dir, &file_name)) {
+    if (mkdir_helper(path, &dir, &file_name) && !dir->inode->removed) {
         block_sector_t inode_sector;
-        if (!dir->inode->removed && free_map_allocate(1, &inode_sector)) {
+        if (free_map_allocate(1, &inode_sector)) {
             if ((success = inode_create(inode_sector, initial_size, is_dir) && dir_add(dir, file_name, inode_sector))) {
                 struct inode *inode = inode_open(inode_sector);
                 if (is_dir) {
@@ -213,31 +212,15 @@ bool create_helper(const char* path, off_t initial_size, bool is_dir) {
     return success;
 }
 
-struct inode* open_helper(struct dir* dir, const char* path, uint32_t index) {
-    if (dir == NULL || dir->inode->removed) {
-        return NULL;
-    }
-    for (uint32_t i = index; i < strlen(path); i++) {
-        if (path[i] == '/') {
-            /* Update dir and recursive call, then break and return */
-            char new_dir_name[NAME_MAX + 1]; 
-            strlcpy(new_dir_name, path + index, i - index + 1);
-            struct inode* inode;
-            if (dir_lookup(dir, new_dir_name, &inode)) {
-                dir_close(dir);
-                dir = dir_open(inode);
-            } else {
-                dir_close(dir);
-                return NULL;
-            }
-            return open_helper(dir, path, i + 1);
-        }
-    }
+struct inode* open_helper(const char* path) {
+    struct dir *dir;
+    char *file_name;
 
-    struct inode* inode;
-    if (dir != NULL)
-        dir_lookup(dir, path + index, &inode);
-    dir_close(dir);
+    struct inode *inode = NULL;
+    if (mkdir_helper(path, &dir, &file_name) && !dir->inode->removed) {
+        dir_lookup(dir, file_name, &inode);
+        dir_close(dir);
+    }
     return inode;
 }
 
