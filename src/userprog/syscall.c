@@ -310,7 +310,7 @@ static void syscall_handler(struct intr_frame *f) {
                 if (entry->file != NULL) {
                     f->eax = inode_get_inumber(file_get_inode(entry->file));
                 } else if (entry->dir != NULL) {
-                    f->eax = inode_get_inumber(entry->dir->inode);
+                    f->eax = inode_get_inumber(dir_get_inode(entry->dir->inode));
                 } else {
                     f->eax = -1;
                 }
@@ -360,6 +360,7 @@ static void syscall_handler(struct intr_frame *f) {
                 entry = pcb->fdt[fd];
                 f->eax = (entry->dir != NULL);
             }
+
             break;
         case SYS_READDIR:
             /* Validate arguments */
